@@ -1,0 +1,15 @@
+{
+  "metadata": {
+    "# ACL instances": 44956,
+    "# ACL instances without full text": 1808,
+    "# ACL survey full text instances": 57,
+    "# ACL survey instances": 79,
+    "# Computer Science survey full text instances": 9316,
+    "# total instances": 136595995
+  },
+  "pdf_parse": {},
+  "metadata_timings": {
+    "time": 47059.033365249634
+  },
+  "pdf_parse_timings": {}
+}

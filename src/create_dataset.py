@@ -6,8 +6,8 @@ from iteration_utilities import unique_everseen
 logger = get_logger()
 
 
-PFD_PARSES_FILE = "acl_pdf_parse_survey_papers.json"
-METADATA_FILE = "acl_metadata_survey_papers.json"
+PFD_PARSES_FILE = "data/acl_pdf_parse_survey_papers.json"
+METADATA_FILE = "data/acl_metadata_survey_papers.json"
 # OUTPUT FILES
 STATS_FILE = "acl_papers/stats.json"
 DATASET_FILE = "acl_papers/data.json"
@@ -68,23 +68,25 @@ if __name__ == "__main__":
 					"cite_spans": cite_spans,
 					"has_cite_spans": has_cite_spans,
 					"has_some_missing_cite_span": has_some_missing_cite_span
-					# TODO: Include the cited papers in each datum?
 			}
 
 			results.append(res_obj)
 
 	unique_reference_papers = list(unique_everseen(reference_papers))
+	samples_with_cite_spans = [d for d in results if d["has_cite_spans"]]
 
 	stats["# citations distribution"] = nr_of_citations_dist
 	stats["paragraph length distribution"] = paragraph_length_dist
 	stats["# data points"] = len(results)
-	stats["# data points with citations"] = len(
-			[d for d in results if d["has_cite_spans"]])
+	stats["# data points with citations"] = len(samples_with_cite_spans)
 	stats["# data points with missing citations"] = len(
 			[d for d in results if d["has_some_missing_cite_span"]])
+	stats["# data points with all citations"] = len(
+			[d for d in samples_with_cite_spans if not d["has_some_missing_cite_span"]])
 	stats["# unique reference papers"] = len(unique_reference_papers)
 	stats["citations not in s2orc"] = citations_not_in_s2orc
 	stats["citations total"] = citations_total
+
 	store_json(stats, STATS_FILE)
 	logger.info(f"Stored stats in '{STATS_FILE}'")
 
