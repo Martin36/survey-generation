@@ -3,4 +3,4 @@ __pycache__
 stats
 acl_papers
 test_data
-
+.env

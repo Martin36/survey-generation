@@ -11,6 +11,8 @@ from typing import Tuple, Any, Dict
 
 import tqdm
 
+from utils import title_includes_search_strings
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger()
 
@@ -21,18 +23,6 @@ COMPUTER_SCIENCE_SURVEY_PAPERS_PATH = "/ukp-storage-1/funkquist/computer_science
 
 NUM_PROCESSES = 8
 
-
-def title_includes_search_strings(title: str):
-    # search_strings = ["survey", "systematic review", "literature review"]
-    search_strings = ["survey"]
-    match = False
-    title = title.lower()
-
-    for s in search_strings:
-        if s in title:
-            match = True
-
-    return match
 
 
 def filter_acl_survey_papers(metadata_json: Dict[str, Any]):
