@@ -11,3 +11,15 @@ def title_includes_search_strings(title: str):
             match = True
 
     return match
+
+
+def sort_dict_keys_as_numbers(dictionary: dict):
+    """Sorts a dict by key if the keys are number strings e.g. "1"
+
+    Args:
+        dictionary (dict): Dictionary to be sorted
+
+    Returns:
+        dict: The sorted dictionary
+    """
+    return dict(sorted(dictionary.items(), key=lambda t: int(t[0])))

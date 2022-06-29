@@ -1,19 +1,24 @@
-import re, pickle
+from collections import defaultdict
+import re, pickle, random
 from typing import List, TypedDict
 
-from utils_package.util_funcs import load_json, load_jsonl, store_json
+from utils_package.util_funcs import load_json, load_jsonl, store_json, unique
 from utils_package.logger import get_logger
 
 logger = get_logger()
 
+### CLOUD PATH ###
+BASE_PATH = "/ukp-storage-1/funkquist/"
+### LOCAL PATH ###
+#BASE_PATH = "data/"
 
-ABURAED_ET_AL_2_PATH = "data/related_work/aburaed_et_al_2/"
-CHEN_ET_AL_PATH = "data/related_work/chen_et_al/"
-LU_ET_AL_PATH = "data/related_work/lu_et_al/"
-SHAH_ET_AL_PATH = "data/related_work/shah_et_al/"
-XING_ET_AL_PATH = "data/related_work/xing_et_al/"
+ABURAED_ET_AL_2_PATH = BASE_PATH+"related_work/aburaed_et_al_2/"
+CHEN_ET_AL_PATH = BASE_PATH+"related_work/chen_et_al/"
+LU_ET_AL_PATH = BASE_PATH+"related_work/lu_et_al/"
+SHAH_ET_AL_PATH = BASE_PATH+"related_work/shah_et_al/"
+XING_ET_AL_PATH = BASE_PATH+"related_work/xing_et_al/"
 
-OUTPUT_PATH = "data/related_work/benchmark/"
+OUTPUT_PATH = BASE_PATH+"related_work/benchmark/"
 
 ### TARGET DATA STRUCTURE ###
 
@@ -138,6 +143,42 @@ def process_shah_et_al():
 
   file_abs_data = load_pickle_data(SHAH_ET_AL_PATH+file_abs_path)
 
+  merged_data = list()
+  stats = defaultdict(int)
+
+  for file_name in rel_works_data:
+    res_obj = {
+      "abstract": abs_data[file_name] if file_name in abs_data.keys() else None,
+      "related_work": rel_works_data[file_name],
+      "file_name": file_name
+    }
+    merged_data.append(res_obj)
+
+    if not res_obj["abstract"]:
+      stats["# missing abstract"] += 1
+
+  for file_name in abs_data:
+    res_obj = {
+      "abstract": abs_data[file_name],
+      "related_work": rel_works_data[file_name] if file_name in rel_works_data.keys() else None,
+      "file_name": file_name
+    }
+    merged_data.append(res_obj)
+
+    if not res_obj["related_work"]:
+      stats["# missing related work"] += 1
+
+  # TODO: Remove duplicates
+
+  has_both_data = [d for d in merged_data if d["abstract"] and d["related_work"]]
+  file_names = [d["file_name"] for d in merged_data]
+  unique_file_names = unique(file_names)
+
+  logger.info(f"# missing abstract: {stats['# missing abstract']}")
+  logger.info(f"# missing related work: {stats['# missing related work']}")
+  logger.info(f"# containing both: {len(has_both_data)}")
+  logger.info(f"# files: {len(file_names)}")
+  logger.info(f"# unique files: {len(unique_file_names)}")
 
   print(abs_data)
 
@@ -167,14 +208,52 @@ def process_xing_et_al():
   return result
 
 
+def create_dataset_splits(data):
+  random.shuffle(data)
+
+  train_size = 0.8
+
+  train_samples = int(len(data)*train_size)
+  val_samples = int((len(data)-train_samples)/2)
+
+  train_data = data[:train_samples]
+  val_data = data[train_samples:train_samples+val_samples]
+  test_data = data[train_samples+val_samples:]
+
+  logger.info(f"# initial: {len(data)}") 
+  logger.info(f"# sum splits: {len(train_data+val_data+test_data)}") 
+  logger.info(f"# train: {len(train_data)}") 
+  logger.info(f"# val: {len(val_data)}") 
+  logger.info(f"# test: {len(test_data)}") 
+
+  return train_data, val_data, test_data
+
+
 if __name__ == "__main__":
   result = process_aburaed_et_al_2()
   result += process_chen_et_al()
   result += process_lu_et_al()
-  # process_shah_et_al()
   result += process_xing_et_al()
 
-  logger.info(f"# of samples: '{len(result)}'")
+  stats = {
+    "# of samples": len(result),
+    "# of related work samples": len([d for d in result if d["task"] == "related work generation"]),
+    "# of citation sentence samples": len([d for d in result if d["task"] == "citation sentence generation"])
+  }
+
+  train, val, test = create_dataset_splits(result)
 
   store_json(result, OUTPUT_PATH+"data.json")
   logger.info(f"Stored 'result' in '{OUTPUT_PATH}'")
+
+  store_json(stats, OUTPUT_PATH+"stats.json")
+  logger.info(f"Stored 'stats' in '{OUTPUT_PATH}'")
+
+  store_json(train, OUTPUT_PATH+"train.json")
+  logger.info(f"Stored 'train' in '{OUTPUT_PATH}'")
+
+  store_json(val, OUTPUT_PATH+"val.json")
+  logger.info(f"Stored 'val' in '{OUTPUT_PATH}'")
+
+  store_json(test, OUTPUT_PATH+"test.json")
+  logger.info(f"Stored 'test' in '{OUTPUT_PATH}'")

@@ -87,7 +87,7 @@ if __name__ == "__main__":
 	stats["citations not in s2orc"] = citations_not_in_s2orc
 	stats["citations total"] = citations_total
 
-	store_json(stats, STATS_FILE)
+	store_json(stats, STATS_FILE, sort_keys=True)
 	logger.info(f"Stored stats in '{STATS_FILE}'")
 
 	store_json(results, DATASET_FILE)
