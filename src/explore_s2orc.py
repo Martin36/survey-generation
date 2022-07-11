@@ -98,7 +98,8 @@ def explore_metadata(file_path: str) -> Tuple[collections.Counter, collections.C
     :return: (counter with statistics, counter with timings)
     """
     stat_counter = defaultdict(int)
-    citation_dist = defaultdict(int)
+    survey_citation_dist = defaultdict(int)
+    other_citation_dist = defaultdict(int)
     time_counter = collections.Counter()
     acl_surveys_metadata = list()
     computer_science_metadata = list()
@@ -116,8 +117,9 @@ def explore_metadata(file_path: str) -> Tuple[collections.Counter, collections.C
                 stat_counter["# ACL instances"] += 1
                 if title_includes_search_strings(metadata["title"]):
                     stat_counter["# ACL survey instances matched with title"] += 1
-                    citation_dist[len(metadata["outbound_citations"])] += 1
-
+                    survey_citation_dist[len(metadata["outbound_citations"])] += 1
+                else:
+                    other_citation_dist[len(metadata["outbound_citations"])] += 1
 
                 if not metadata["has_pdf_parse"]:
                     stat_counter["# ACL instances without full text"] += 1
@@ -131,8 +133,10 @@ def explore_metadata(file_path: str) -> Tuple[collections.Counter, collections.C
                 stat_counter["# Computer Science survey full text instances"] += 1
                 computer_science_metadata.append(metadata)
     
-    stat_counter["citation distribution for title matched papers"] = citation_dist
-    stat_counter["average number of citations for title matched papers"] = calc_citations_distribution_average(citation_dist)
+    stat_counter["citation distribution for title matched papers"] = survey_citation_dist
+    stat_counter["average number of citations for title matched papers"] = calc_citations_distribution_average(survey_citation_dist)
+    stat_counter["citation distribution for other ACL papers"] = other_citation_dist
+    stat_counter["average number of citations for other ACL papers"] = calc_citations_distribution_average(other_citation_dist)
 
     tack = time.time()
     time_counter["time"] += tack - tick
