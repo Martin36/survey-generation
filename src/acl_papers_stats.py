@@ -49,7 +49,8 @@ if __name__ == "__main__":
 	stats = get_stats(data)
 	titles = get_titles(data)
 
-	store_stats(stats, OUTPUT_FILE)
+	store_json(stats, OUTPUT_FILE)
+	logger.info(f"Stored 'stats' in '{OUTPUT_FILE}'")
 
 	store_json(titles, TITLES_FILE)
 	logger.info(f"Stored 'titles' in '{TITLES_FILE}'")

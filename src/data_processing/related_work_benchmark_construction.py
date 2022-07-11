@@ -8,9 +8,9 @@ from utils_package.logger import get_logger
 logger = get_logger()
 
 ### CLOUD PATH ###
-BASE_PATH = "/ukp-storage-1/funkquist/"
+# BASE_PATH = "/ukp-storage-1/funkquist/"
 ### LOCAL PATH ###
-#BASE_PATH = "data/"
+BASE_PATH = "data/"
 
 ABURAED_ET_AL_2_PATH = BASE_PATH+"related_work/aburaed_et_al_2/"
 CHEN_ET_AL_PATH = BASE_PATH+"related_work/chen_et_al/"
@@ -29,7 +29,7 @@ class Datum(TypedDict):
   task: str               # Name of original task e.g. related work generation or citation generation
 
 
-def get_data_aburaed_et_al_2(split):
+def get_data_aburaed_et_al(split):
   src_ending = ".txt.src"
   tgt_ending = ".txt.tgt.tagged"
 
@@ -46,71 +46,65 @@ def get_data_aburaed_et_al_2(split):
     res_obj = Datum(
       target=tline,
       input_docs=[sline],
-      src_dataset="aburaed et al 2",
-      task="citation sentence generation"
     )
 
     results.append(res_obj)
 
   return results
 
-def process_aburaed_et_al_2():
-  splits = ["test", "train", "val"]
 
-  results = list()
-  for split in splits:
-    results += get_data_aburaed_et_al_2(split)
+def process_aburaed_et_al():
+  train = list()
+  train = get_data_aburaed_et_al("train")
 
-  return results
-    
+  val = list()
+  val = get_data_aburaed_et_al("val")
+
+  test = list()
+  test = get_data_aburaed_et_al("test")
+
+  store_dataset(train, val, test, "aburaed_et_at/")
+
+
 def get_data_chen_et_al(data_path):
   result = list()
-  delve_data = load_jsonl(CHEN_ET_AL_PATH+data_path+".jsonl")
-  for d in delve_data:
+  data = load_jsonl(CHEN_ET_AL_PATH+data_path+".jsonl")
+  for d in data:
     res_obj = Datum(
       target=d["abs"],
       input_docs=d["multi_doc"],
-      src_dataset="chen et al",
-      task="related work generation"
     )
     result.append(res_obj)
   return result
 
 def process_chen_et_al():
-  delve_path = "delve/"
-  s2orc_path = "s2orc/"
+  for path in ["delve/", "s2orc/"]: 
+    train = get_data_chen_et_al(path+"train")
+    val = get_data_chen_et_al(path+"valid")
+    test = get_data_chen_et_al(path+"test")
 
-  splits = ["test", "train", "valid"]
+    store_dataset(train, val, test, "chen_et_al/"+path)    
 
+
+def get_lu_et_al_data(split):
   result = list()
-
-  for split in splits:
-    result += get_data_chen_et_al(delve_path+split)
-    result += get_data_chen_et_al(s2orc_path+split)
-
+  data = load_json(LU_ET_AL_PATH+split+".json")
+  for d in data:
+    res_obj = Datum(
+      target=d["related_work"],
+      abstract=d["abstract"],
+      input_docs=[r["abstract"] for r in d["ref_abstract"].values()],
+    )
+    result.append(res_obj)
   return result
 
 def process_lu_et_al():
-  # This dataset also contains abstracts of the target papers
-  # Is this something that could be added?
+  train = get_lu_et_al_data("train")
+  val = get_lu_et_al_data("val")
+  test = get_lu_et_al_data("test")
 
-  splits = ["test", "train", "val"]
+  store_dataset(train, val, test, "lu_et_al/")
 
-  result = list()
-
-  for split in splits:
-    data = load_json(LU_ET_AL_PATH+split+".json")
-    for d in data:
-      res_obj = Datum(
-        target=d["related_work"],
-        input_docs=[r["abstract"] for r in d["ref_abstract"].values()],
-        src_dataset="lu et al",
-        task="related work generation"
-      )
-
-      result.append(res_obj)
-
-  return result
 
 def load_pickle_data(path):
   data = list()
@@ -183,29 +177,58 @@ def process_shah_et_al():
   print(abs_data)
 
 
+def get_xing_et_al_data(data, dataset):
+  result = list()
+  for d in data:
+    if dataset == "explicit":
+      res_obj = Datum(
+        target=d["explicit_citation"],
+        abstract=d["tgt_abstract"],
+        input_docs=[d["src_abstract"]],
+        context_before=d["text_before_explicit_citation"],
+        context_after=d["text_after_explicit_citation"],
+      )
+
+    if dataset == "hr":
+      res_obj = Datum(
+        target=d["implicit_citation_0.1"],
+        abstract=d["tgt_abstract"],
+        input_docs=[d["src_abstract"]],
+        context_before=d["text_before_implicit_citation_0.1"],
+        context_after=d["text_after_implicit_citation_0.1"],
+      )
+
+    if dataset == "hp":
+      res_obj = Datum(
+        target=d["implicit_citation_0.9"],
+        abstract=d["tgt_abstract"],
+        input_docs=[d["src_abstract"]],
+        context_before=d["text_before_implicit_citation_0.9"],
+        context_after=d["text_after_implicit_citation_0.9"],
+      )
+
+    result.append(res_obj)
+
+  return result
+
 def process_xing_et_al():
   # This dataset also contains context before and after
   # the citation and distinguishes between explicit citations
   # e.g. citations where the citation is in the sentence
   # and implicit citations where the citation might not be in the sentence
   # It also has the abstract of the target paper
-  data_path = "citation.jsonl"
 
-  data = load_jsonl(XING_ET_AL_PATH+data_path)
+  data = load_jsonl(XING_ET_AL_PATH+"citation.jsonl")
 
-  result = list()
+  train_input = [d for d in data if d["train_or_test"] == "train"]
+  test_input = [d for d in data if d["train_or_test"] == "test"]
 
-  for d in data:
-    res_obj = Datum(
-      target=d["explicit_citation"],
-      input_docs=[d["src_abstract"]],
-      src_dataset="xing et al",
-      task="citation sentence generation"
-    )
+  for ds in ["explicit", "hp", "hr"]:
+    train = get_xing_et_al_data(train_input, ds)
+    val = []
+    test = get_xing_et_al_data(test_input, ds)
 
-    result.append(res_obj)
-
-  return result
+    store_dataset(train, val, test, "xing_et_al/"+ds+"/")
 
 
 def create_dataset_splits(data):
@@ -229,31 +252,45 @@ def create_dataset_splits(data):
   return train_data, val_data, test_data
 
 
+def store_dataset(train: list, val: list, test: list, folder: str):
+  train_file = OUTPUT_PATH+folder+"train.json"
+  store_json(train, train_file)
+  logger.info(f"Stored 'train' in '{train_file}'")
+
+  val_file = OUTPUT_PATH+folder+"val.json"
+  store_json(val, val_file)
+  logger.info(f"Stored 'val' in '{val_file}'")
+
+  test_file = OUTPUT_PATH+folder+"test.json"
+  store_json(test, test_file)
+  logger.info(f"Stored 'test' in '{test_file}'")
+
+
 if __name__ == "__main__":
-  result = process_aburaed_et_al_2()
-  result += process_chen_et_al()
-  result += process_lu_et_al()
-  result += process_xing_et_al()
+  process_aburaed_et_al()
+  process_chen_et_al()
+  process_lu_et_al()
+  process_xing_et_al()
 
-  stats = {
-    "# of samples": len(result),
-    "# of related work samples": len([d for d in result if d["task"] == "related work generation"]),
-    "# of citation sentence samples": len([d for d in result if d["task"] == "citation sentence generation"])
-  }
+  # stats = {
+  #   "# of samples": len(result),
+  #   "# of related work samples": len([d for d in result if d["task"] == "related work generation"]),
+  #   "# of citation sentence samples": len([d for d in result if d["task"] == "citation sentence generation"])
+  # }
 
-  train, val, test = create_dataset_splits(result)
+  # train, val, test = create_dataset_splits(result)
 
-  store_json(result, OUTPUT_PATH+"data.json")
-  logger.info(f"Stored 'result' in '{OUTPUT_PATH}'")
+  # store_json(result, OUTPUT_PATH+"data.json")
+  # logger.info(f"Stored 'result' in '{OUTPUT_PATH}'")
 
-  store_json(stats, OUTPUT_PATH+"stats.json")
-  logger.info(f"Stored 'stats' in '{OUTPUT_PATH}'")
+  # store_json(stats, OUTPUT_PATH+"stats.json")
+  # logger.info(f"Stored 'stats' in '{OUTPUT_PATH}'")
 
-  store_json(train, OUTPUT_PATH+"train.json")
-  logger.info(f"Stored 'train' in '{OUTPUT_PATH}'")
+  # store_json(train, OUTPUT_PATH+"train.json")
+  # logger.info(f"Stored 'train' in '{OUTPUT_PATH}'")
 
-  store_json(val, OUTPUT_PATH+"val.json")
-  logger.info(f"Stored 'val' in '{OUTPUT_PATH}'")
+  # store_json(val, OUTPUT_PATH+"val.json")
+  # logger.info(f"Stored 'val' in '{OUTPUT_PATH}'")
 
-  store_json(test, OUTPUT_PATH+"test.json")
-  logger.info(f"Stored 'test' in '{OUTPUT_PATH}'")
+  # store_json(test, OUTPUT_PATH+"test.json")
+  # logger.info(f"Stored 'test' in '{OUTPUT_PATH}'")

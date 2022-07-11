@@ -8,6 +8,7 @@ import multiprocessing
 import os
 import time
 from typing import Tuple, Any, Dict
+from collections import defaultdict
 
 import tqdm
 
@@ -17,19 +18,41 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger()
 
 S2ORC_PATH = "/ukp-storage-1/shared/S2ORC/20200705v1/full"
-RESULTS_PATH = "/ukp-storage-1/funkquist/result_survey_only.json"
-ACL_SURVEY_PAPERS_PATH = "/ukp-storage-1/funkquist/acl_survey_papers.json"
+RESULTS_PATH = "/ukp-storage-1/funkquist/result_inc_abs.json"
+ACL_SURVEY_PAPERS_PATH = "/ukp-storage-1/funkquist/acl_survey_papers_inc_abs.json"
 COMPUTER_SCIENCE_SURVEY_PAPERS_PATH = "/ukp-storage-1/funkquist/computer_science_survey_papers.json"
 
 NUM_PROCESSES = 8
 
+
+def search_in_abstract(abstract: str):
+    """Search the abstract for keywords related to survey papers
+
+    Args:
+        abstract (str): Abstract of the paper
+
+    Returns:
+        bool: True if abstracts contains any of the keywords
+    """
+
+    search_strings = ["survey", "systematic review", "literature review"]
+    # search_strings = ["survey"]
+    match = False
+    abstract = abstract.lower()
+
+    for s in search_strings:
+        if s in abstract:
+            match = True
+
+    return match
 
 
 def filter_acl_survey_papers(metadata_json: Dict[str, Any]):
 
     if metadata_json["acl_id"] is None:
         return False
-    if not title_includes_search_strings(metadata_json["title"]):
+    if not title_includes_search_strings(metadata_json["title"]) and \
+        not search_in_abstract(metadata_json["abstract"]):
         return False
     if not metadata_json["has_pdf_parse"]:
         return False
@@ -74,7 +97,8 @@ def explore_metadata(file_path: str) -> Tuple[collections.Counter, collections.C
     :param file_path: file path to metadata JSONL file
     :return: (counter with statistics, counter with timings)
     """
-    stat_counter = collections.Counter()
+    stat_counter = defaultdict(int)
+    citation_dist = defaultdict(int)
     time_counter = collections.Counter()
     acl_surveys_metadata = list()
     computer_science_metadata = list()
@@ -91,7 +115,9 @@ def explore_metadata(file_path: str) -> Tuple[collections.Counter, collections.C
             if metadata["acl_id"] is not None:
                 stat_counter["# ACL instances"] += 1
                 if title_includes_search_strings(metadata["title"]):
-                    stat_counter["# ACL survey instances"] += 1
+                    stat_counter["# ACL survey instances matched with title"] += 1
+                    citation_dist[len(metadata["outbound_citations"])] += 1
+
 
                 if not metadata["has_pdf_parse"]:
                     stat_counter["# ACL instances without full text"] += 1
@@ -104,12 +130,27 @@ def explore_metadata(file_path: str) -> Tuple[collections.Counter, collections.C
             if filter_computer_science_survey_papers(metadata):
                 stat_counter["# Computer Science survey full text instances"] += 1
                 computer_science_metadata.append(metadata)
-
+    
+    stat_counter["citation distribution for title matched papers"] = citation_dist
+    stat_counter["average number of citations for title matched papers"] = calc_citations_distribution_average(citation_dist)
 
     tack = time.time()
     time_counter["time"] += tack - tick
 
     return stat_counter, time_counter, acl_surveys_metadata, computer_science_metadata
+
+
+def calc_citations_distribution_average(dist: dict):
+    total_citations = 0
+    total_papers = 0
+
+    for citations, nr_of_papers in dist.items():
+        total_citations += int(citations)*nr_of_papers
+        total_papers += nr_of_papers
+
+    avg_citations = int(total_citations/total_papers)
+
+    return avg_citations
 
 
 if __name__ == "__main__":

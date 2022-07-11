@@ -1,8 +1,8 @@
 
 
 def title_includes_search_strings(title: str):
-    # search_strings = ["survey", "systematic review", "literature review"]
-    search_strings = ["survey"]
+    search_strings = ["survey", "systematic review", "literature review", "overview", ]
+    # search_strings = ["survey"]
     match = False
     title = title.lower()
 
