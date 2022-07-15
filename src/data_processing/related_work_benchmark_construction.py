@@ -41,7 +41,14 @@ def get_data_aburaed_et_al(split):
   for sline, tline in zip(src,tgt):
     tline = re.sub("(\([^()]*\d{2,4}[^()]*\))|([A-Z]\w+\s*.{1,8}\([^()]*\d{4}[^()]*\))|([A-Z]\w+\s*\([^()]*\d{4}[^()]*\))|([A-Z]\w+\s*and\s*[A-Z]\w+\s*\([^()]*\d{4}\))|(\[[^\[\]]*\d{1,4}[^\[\]]*\])", "<CITE>", tline)
     tline = re.sub("\d{1}", "#", tline)
+    tline = re.sub("<t>", "", tline)
+    tline = re.sub("<\/t>", "", tline)
+    tline = re.sub("<cite>", "[0]", tline)
+    tline = tline.strip()
+    
     sline = re.sub("\d{1}", "#", sline)
+    sline = "[0] " + sline
+    sline = sline.strip()
 
     res_obj = Datum(
       target=tline,
@@ -86,14 +93,22 @@ def process_chen_et_al():
     store_dataset(train, val, test, "chen_et_al/"+path)    
 
 
+def replace_cite_with_nr(text: str, cite_to_nr: dict):
+  for k, v in cite_to_nr.items():
+    text = text.replace(k, v)
+  return text
+
+
 def get_lu_et_al_data(split):
   result = list()
   data = load_json(LU_ET_AL_PATH+split+".json")
   for d in data:
+    cite_to_nr = {k: f"[{i}]" for i, k in enumerate(d["ref_abstract"].keys())}
+    target = replace_cite_with_nr(d["related_work"], cite_to_nr)
     res_obj = Datum(
-      target=d["related_work"],
+      target=target,
       abstract=d["abstract"],
-      input_docs=[r["abstract"] for r in d["ref_abstract"].values()],
+      input_docs=[f'{cite_to_nr[k]} {r["abstract"]}' for k,r in d["ref_abstract"].items()],
     )
     result.append(res_obj)
   return result
@@ -106,106 +121,38 @@ def process_lu_et_al():
   store_dataset(train, val, test, "lu_et_al/")
 
 
-def load_pickle_data(path):
-  data = list()
-
-  with open(path, "rb") as f:
-    while True:
-      try:
-        data.append(pickle.load(f))
-      except EOFError:
-        break
-  
-  data = data[0]
-
-  return data
-
-def filter_non_empty_texts(data):
-  return {k:v for k,v in data.items() if len(v.strip())}
-
-# TODO: Figure out how this dataset is strucutred
-def process_shah_et_al():
-  rel_works_path = "aan/papers_text/papers_trimmed_related_works.p"
-  abs_path = "aan/papers_text/papers_abstracts.p"
-  file_abs_path = "acl_anthology_pdfs/file_abstract.p"
-
-  rel_works_data = load_pickle_data(SHAH_ET_AL_PATH+rel_works_path)
-  rel_works_data = filter_non_empty_texts(rel_works_data)
-
-  abs_data = load_pickle_data(SHAH_ET_AL_PATH+abs_path)
-  abs_data = filter_non_empty_texts(abs_data)
-
-  file_abs_data = load_pickle_data(SHAH_ET_AL_PATH+file_abs_path)
-
-  merged_data = list()
-  stats = defaultdict(int)
-
-  for file_name in rel_works_data:
-    res_obj = {
-      "abstract": abs_data[file_name] if file_name in abs_data.keys() else None,
-      "related_work": rel_works_data[file_name],
-      "file_name": file_name
-    }
-    merged_data.append(res_obj)
-
-    if not res_obj["abstract"]:
-      stats["# missing abstract"] += 1
-
-  for file_name in abs_data:
-    res_obj = {
-      "abstract": abs_data[file_name],
-      "related_work": rel_works_data[file_name] if file_name in rel_works_data.keys() else None,
-      "file_name": file_name
-    }
-    merged_data.append(res_obj)
-
-    if not res_obj["related_work"]:
-      stats["# missing related work"] += 1
-
-  # TODO: Remove duplicates
-
-  has_both_data = [d for d in merged_data if d["abstract"] and d["related_work"]]
-  file_names = [d["file_name"] for d in merged_data]
-  unique_file_names = unique(file_names)
-
-  logger.info(f"# missing abstract: {stats['# missing abstract']}")
-  logger.info(f"# missing related work: {stats['# missing related work']}")
-  logger.info(f"# containing both: {len(has_both_data)}")
-  logger.info(f"# files: {len(file_names)}")
-  logger.info(f"# unique files: {len(unique_file_names)}")
-
-  print(abs_data)
-
+def replace_xing_et_al_references(text: str):
+  text = re.sub("#REFR", "[0]", text)
+  return text
 
 def get_xing_et_al_data(data, dataset):
   result = list()
   for d in data:
+    input_docs = ["[0] " + d["src_abstract"]]
     if dataset == "explicit":
+      target = replace_xing_et_al_references(d["explicit_citation"])
       res_obj = Datum(
-        target=d["explicit_citation"],
-        abstract=d["tgt_abstract"],
-        input_docs=[d["src_abstract"]],
         context_before=d["text_before_explicit_citation"],
         context_after=d["text_after_explicit_citation"],
       )
 
     if dataset == "hr":
+      target = replace_xing_et_al_references(d["implicit_citation_0.1"])
       res_obj = Datum(
-        target=d["implicit_citation_0.1"],
-        abstract=d["tgt_abstract"],
-        input_docs=[d["src_abstract"]],
         context_before=d["text_before_implicit_citation_0.1"],
         context_after=d["text_after_implicit_citation_0.1"],
       )
 
     if dataset == "hp":
+      target = replace_xing_et_al_references(d["implicit_citation_0.9"])
       res_obj = Datum(
-        target=d["implicit_citation_0.9"],
-        abstract=d["tgt_abstract"],
-        input_docs=[d["src_abstract"]],
         context_before=d["text_before_implicit_citation_0.9"],
         context_after=d["text_after_implicit_citation_0.9"],
       )
+
+    res_obj["target"] = target
+    res_obj["input_docs"] = input_docs
+    res_obj["abstract"] = d["tgt_abstract"]
 
     result.append(res_obj)
 

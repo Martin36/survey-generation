@@ -18,8 +18,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger()
 
 S2ORC_PATH = "/ukp-storage-1/shared/S2ORC/20200705v1/full"
-RESULTS_PATH = "/ukp-storage-1/funkquist/result_inc_abs.json"
-ACL_SURVEY_PAPERS_PATH = "/ukp-storage-1/funkquist/acl_survey_papers_inc_abs.json"
+RESULTS_PATH = "/storage/ukp/work/funkquist/result_inc_abs.json"
+ACL_SURVEY_PAPERS_PATH = "/storage/ukp/work/funkquist/acl_survey_papers_inc_abs.json"
 COMPUTER_SCIENCE_SURVEY_PAPERS_PATH = "/ukp-storage-1/funkquist/computer_science_survey_papers.json"
 
 NUM_PROCESSES = 8
