@@ -1,5 +1,4 @@
-from collections import defaultdict
-import re, pickle, random
+import re, random
 from typing import List, TypedDict
 
 from utils_package.util_funcs import load_json, load_jsonl, store_json, unique
@@ -25,8 +24,14 @@ OUTPUT_PATH = BASE_PATH+"related_work/benchmark/"
 class Datum(TypedDict):
   target: str             # The target related work section/citation sentence
   input_docs: List[str]   # List of text from cited papers
-  src_dataset: str        # Name of the dataset where the data sample comes from
-  task: str               # Name of original task e.g. related work generation or citation generation
+  input: str              # The unified format of the input
+
+
+def convert_input_docs_to_unified_format(input_docs: List[str]):
+  result = ""
+  for doc in input_docs:
+    result += doc[0] + "DOC_" + doc[1:] + " "
+  return result.strip()
 
 
 def get_data_aburaed_et_al(split):
@@ -53,6 +58,7 @@ def get_data_aburaed_et_al(split):
     res_obj = Datum(
       target=tline,
       input_docs=[sline],
+      input=convert_input_docs_to_unified_format([sline]),
     )
 
     results.append(res_obj)
@@ -80,6 +86,7 @@ def get_data_chen_et_al(data_path):
     res_obj = Datum(
       target=d["abs"],
       input_docs=d["multi_doc"],
+      input=convert_input_docs_to_unified_format(d["multi_doc"]),
     )
     result.append(res_obj)
   return result
@@ -90,7 +97,9 @@ def process_chen_et_al():
     val = get_data_chen_et_al(path+"valid")
     test = get_data_chen_et_al(path+"test")
 
-    store_dataset(train, val, test, "chen_et_al/"+path)    
+    store_dataset(train, val, test, "chen_et_al/"+path)  
+
+    del train, val, test  
 
 
 def replace_cite_with_nr(text: str, cite_to_nr: dict):
@@ -110,6 +119,8 @@ def get_lu_et_al_data(split):
       abstract=d["abstract"],
       input_docs=[f'{cite_to_nr[k]} {r["abstract"]}' for k,r in d["ref_abstract"].items()],
     )
+    res_obj["input"] = convert_input_docs_to_unified_format(res_obj["input_docs"])
+
     result.append(res_obj)
   return result
 
@@ -153,6 +164,7 @@ def get_xing_et_al_data(data, dataset):
     res_obj["target"] = target
     res_obj["input_docs"] = input_docs
     res_obj["abstract"] = d["tgt_abstract"]
+    res_obj["input"] = convert_input_docs_to_unified_format(input_docs)
 
     result.append(res_obj)
 
