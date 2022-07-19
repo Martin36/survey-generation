@@ -1,20 +1,27 @@
 import torch
 import evaluate
 import logging
+import os
 
-from transformers import LEDTokenizer, LEDForConditionalGeneration, Seq2SeqTrainer
-from transformers import TrainingArguments
+from transformers import LEDTokenizer, LEDForConditionalGeneration, Seq2SeqTrainer, Seq2SeqTrainingArguments
 from datasets import load_dataset
+from utils_package.logger import get_logger
+from pynvml import *
 
-from custom_datasets.rel_work import RelatedWorksDataset
+logger = get_logger()
 
 logging.basicConfig(level=logging.INFO)
 
+os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
-# ['absl', 'rouge_score']
-model = LEDForConditionalGeneration.from_pretrained("allenai/led-large-16384-arxiv")
+logger.info(f"Cuda available: {torch.cuda.is_available()}")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+logger.info(f"Using device: {device}")
+
+model = LEDForConditionalGeneration.from_pretrained("allenai/led-large-16384-arxiv").to(device)
 tokenizer = LEDTokenizer.from_pretrained("allenai/led-large-16384-arxiv")
 rouge = evaluate.load('rouge')
+
 
 # Slightly modified from: https://huggingface.co/patrickvonplaten/bert2gpt2-cnn_dailymail-fp16
 def compute_metrics(pred):
@@ -34,15 +41,25 @@ def compute_metrics(pred):
       "rouge2_fmeasure": round(rouge_output.fmeasure, 4),
   }
 
-ENCODER_LENGTH = 4096
-DECODER_LENGTH = 4096 # TODO: What should this be?
-BATCH_SIZE = 16
+ENCODER_LENGTH = int(4096 / 2)
+DECODER_LENGTH = int(4096 / 4) # TODO: What should this be?
+BATCH_SIZE = 2
 
 
 # Slightly modified from: https://huggingface.co/patrickvonplaten/bert2gpt2-cnn_dailymail-fp16
 def map_to_encoder_decoder_inputs(batch):    # Tokenizer will automatically set [BOS] <text> [EOS] 
-  inputs = tokenizer(batch["input"], padding="max_length", truncation=True, max_length=ENCODER_LENGTH)
-  outputs = tokenizer(batch["target"], padding="max_length", truncation=True, max_length=DECODER_LENGTH)
+  inputs = tokenizer(
+    batch["input"], 
+    padding="max_length", 
+    truncation=True, 
+    max_length=ENCODER_LENGTH
+  )
+  outputs = tokenizer(
+    batch["target"], 
+    padding="max_length", 
+    truncation=True, 
+    max_length=DECODER_LENGTH
+  )
 
   batch["input_ids"] = inputs.input_ids
   batch["attention_mask"] = inputs.attention_mask
@@ -63,34 +80,74 @@ def map_to_encoder_decoder_inputs(batch):    # Tokenizer will automatically set 
 
 # train_dataset = RelatedWorksDataset("train")
 # val_dataset = RelatedWorksDataset("val")
-train_dataset = load_dataset("json", data_files="data/related_work/benchmark/aburaed_et_at/train.jsonl")
-val_dataset = load_dataset("json", data_files="data/related_work/benchmark/aburaed_et_at/val.jsonl")
+BASE_DATA_PATH = "data/related_work/benchmark/"
+data_files = {
+  "train": [
+    BASE_DATA_PATH+"aburaed_et_at/train.jsonl",
+    BASE_DATA_PATH+"chen_et_al/delve/train.jsonl",
+    BASE_DATA_PATH+"chen_et_al/s2orc/train.jsonl",
+    BASE_DATA_PATH+"lu_et_al/train.jsonl",
+    BASE_DATA_PATH+"xing_et_al/explicit/train.jsonl",
+    BASE_DATA_PATH+"xing_et_al/hp/train.jsonl",
+    BASE_DATA_PATH+"xing_et_al/hr/train.jsonl"
+  ],
+  "validation": [
+    BASE_DATA_PATH+"aburaed_et_at/val.jsonl",
+    BASE_DATA_PATH+"chen_et_al/delve/val.jsonl",
+    BASE_DATA_PATH+"chen_et_al/s2orc/val.jsonl",
+    BASE_DATA_PATH+"lu_et_al/val.jsonl",
+    BASE_DATA_PATH+"xing_et_al/explicit/val.jsonl",
+    BASE_DATA_PATH+"xing_et_al/hp/val.jsonl",
+    BASE_DATA_PATH+"xing_et_al/hr/val.jsonl"
+  ]
+}
 
+# JUST FOR TESTING THE PIPELINE
+data_files = {
+  "train": [BASE_DATA_PATH+"mini_dataset.jsonl"],
+  "validation": [BASE_DATA_PATH+"mini_dataset.jsonl"]
+}
 
-# make train dataset ready
-train_dataset = train_dataset.map(
-  map_to_encoder_decoder_inputs, batched=True, batch_size=BATCH_SIZE, remove_columns=["target", "input_docs", "input"],
+dataset = load_dataset("json", data_files=data_files)
+
+logger.info("Mapping data to correct format...")
+dataset = dataset.map(
+  map_to_encoder_decoder_inputs, batched=True, batch_size=BATCH_SIZE, remove_columns=["target", "input"],
 )
-train_dataset.set_format(
+dataset.set_format(
   type="torch", columns=["input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"],
 )
 
 # # same for validation dataset
-val_dataset = val_dataset.map(
-  map_to_encoder_decoder_inputs, batched=True, batch_size=BATCH_SIZE, remove_columns=["target", "input_docs", "input"],
-)
-val_dataset.set_format(
-  type="torch", columns=["input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"],
-)
+# val_dataset = val_dataset.map(
+#   map_to_encoder_decoder_inputs, batched=True, batch_size=BATCH_SIZE, remove_columns=["target", "input_docs", "input"],
+# )
+# val_dataset.set_format(
+#   type="torch", columns=["input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"],
+# )
 
-training_args = TrainingArguments(output_dir="models/rel_work")
+training_args = Seq2SeqTrainingArguments(
+  output_dir="models/rel_work",
+  per_device_train_batch_size=BATCH_SIZE,
+  per_device_eval_batch_size=BATCH_SIZE,
+  predict_with_generate=True,
+  gradient_accumulation_steps=1,
+  gradient_checkpointing=True,
+  fp16=True,
+  overwrite_output_dir=True,
+  evaluation_strategy="steps",
+  eval_steps=20,
+  save_total_limit=5,
+)
 
 trainer = Seq2SeqTrainer(
   model=model,
   args=training_args,
-  train_dataset=train_dataset["train"],
-  eval_dataset=val_dataset["train"],
+  train_dataset=dataset["train"],
+  eval_dataset=dataset["validation"],
+  compute_metrics=compute_metrics,
   tokenizer=tokenizer,
 )
 
+logger.info("Starting training...")
 trainer.train()

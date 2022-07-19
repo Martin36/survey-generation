@@ -14,7 +14,7 @@ BASE_PATH = "data/"
 ABURAED_ET_AL_2_PATH = BASE_PATH+"related_work/aburaed_et_al_2/"
 CHEN_ET_AL_PATH = BASE_PATH+"related_work/chen_et_al/"
 LU_ET_AL_PATH = BASE_PATH+"related_work/lu_et_al/"
-SHAH_ET_AL_PATH = BASE_PATH+"related_work/shah_et_al/"
+# SHAH_ET_AL_PATH = BASE_PATH+"related_work/shah_et_al/"
 XING_ET_AL_PATH = BASE_PATH+"related_work/xing_et_al/"
 
 OUTPUT_PATH = BASE_PATH+"related_work/benchmark/"
