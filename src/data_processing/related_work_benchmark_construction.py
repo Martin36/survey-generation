@@ -1,29 +1,22 @@
-import re, random
+import re
 from typing import List, TypedDict
 
-from utils_package.util_funcs import load_json, load_jsonl, store_json, unique
+from utils_package.util_funcs import load_json, load_jsonl, store_jsonl
 from utils_package.logger import get_logger
 
 logger = get_logger()
 
-### CLOUD PATH ###
-# BASE_PATH = "/ukp-storage-1/funkquist/"
-### LOCAL PATH ###
 BASE_PATH = "data/"
 
 ABURAED_ET_AL_2_PATH = BASE_PATH+"related_work/aburaed_et_al_2/"
 CHEN_ET_AL_PATH = BASE_PATH+"related_work/chen_et_al/"
 LU_ET_AL_PATH = BASE_PATH+"related_work/lu_et_al/"
-# SHAH_ET_AL_PATH = BASE_PATH+"related_work/shah_et_al/"
 XING_ET_AL_PATH = BASE_PATH+"related_work/xing_et_al/"
 
 OUTPUT_PATH = BASE_PATH+"related_work/benchmark/"
 
-### TARGET DATA STRUCTURE ###
-
 class Datum(TypedDict):
   target: str             # The target related work section/citation sentence
-  input_docs: List[str]   # List of text from cited papers
   input: str              # The unified format of the input
 
 
@@ -57,7 +50,6 @@ def get_data_aburaed_et_al(split):
 
     res_obj = Datum(
       target=tline,
-      input_docs=[sline],
       input=convert_input_docs_to_unified_format([sline]),
     )
 
@@ -85,7 +77,6 @@ def get_data_chen_et_al(data_path):
   for d in data:
     res_obj = Datum(
       target=d["abs"],
-      input_docs=d["multi_doc"],
       input=convert_input_docs_to_unified_format(d["multi_doc"]),
     )
     result.append(res_obj)
@@ -107,20 +98,17 @@ def replace_cite_with_nr(text: str, cite_to_nr: dict):
     text = text.replace(k, v)
   return text
 
-
 def get_lu_et_al_data(split):
   result = list()
   data = load_json(LU_ET_AL_PATH+split+".json")
   for d in data:
     cite_to_nr = {k: f"[{i}]" for i, k in enumerate(d["ref_abstract"].keys())}
     target = replace_cite_with_nr(d["related_work"], cite_to_nr)
+    input_docs=[f'{cite_to_nr[k]} {r["abstract"]}' for k,r in d["ref_abstract"].items()]
     res_obj = Datum(
       target=target,
-      abstract=d["abstract"],
-      input_docs=[f'{cite_to_nr[k]} {r["abstract"]}' for k,r in d["ref_abstract"].items()],
+      input=convert_input_docs_to_unified_format(input_docs),
     )
-    res_obj["input"] = convert_input_docs_to_unified_format(res_obj["input_docs"])
-
     result.append(res_obj)
   return result
 
@@ -139,44 +127,23 @@ def replace_xing_et_al_references(text: str):
 def get_xing_et_al_data(data, dataset):
   result = list()
   for d in data:
-    input_docs = ["[0] " + d["src_abstract"]]
     if dataset == "explicit":
       target = replace_xing_et_al_references(d["explicit_citation"])
-      res_obj = Datum(
-        context_before=d["text_before_explicit_citation"],
-        context_after=d["text_after_explicit_citation"],
-      )
-
     if dataset == "hr":
       target = replace_xing_et_al_references(d["implicit_citation_0.1"])
-      res_obj = Datum(
-        context_before=d["text_before_implicit_citation_0.1"],
-        context_after=d["text_after_implicit_citation_0.1"],
-      )
-
     if dataset == "hp":
       target = replace_xing_et_al_references(d["implicit_citation_0.9"])
-      res_obj = Datum(
-        context_before=d["text_before_implicit_citation_0.9"],
-        context_after=d["text_after_implicit_citation_0.9"],
-      )
 
-    res_obj["target"] = target
-    res_obj["input_docs"] = input_docs
-    res_obj["abstract"] = d["tgt_abstract"]
-    res_obj["input"] = convert_input_docs_to_unified_format(input_docs)
-
+    input_docs = ["[0] " + d["src_abstract"]]
+    res_obj = Datum(
+      target=target,
+      input=convert_input_docs_to_unified_format(input_docs),
+    )
     result.append(res_obj)
 
   return result
 
 def process_xing_et_al():
-  # This dataset also contains context before and after
-  # the citation and distinguishes between explicit citations
-  # e.g. citations where the citation is in the sentence
-  # and implicit citations where the citation might not be in the sentence
-  # It also has the abstract of the target paper
-
   data = load_jsonl(XING_ET_AL_PATH+"citation.jsonl")
 
   train_input = [d for d in data if d["train_or_test"] == "train"]
@@ -190,38 +157,17 @@ def process_xing_et_al():
     store_dataset(train, val, test, "xing_et_al/"+ds+"/")
 
 
-def create_dataset_splits(data):
-  random.shuffle(data)
-
-  train_size = 0.8
-
-  train_samples = int(len(data)*train_size)
-  val_samples = int((len(data)-train_samples)/2)
-
-  train_data = data[:train_samples]
-  val_data = data[train_samples:train_samples+val_samples]
-  test_data = data[train_samples+val_samples:]
-
-  logger.info(f"# initial: {len(data)}") 
-  logger.info(f"# sum splits: {len(train_data+val_data+test_data)}") 
-  logger.info(f"# train: {len(train_data)}") 
-  logger.info(f"# val: {len(val_data)}") 
-  logger.info(f"# test: {len(test_data)}") 
-
-  return train_data, val_data, test_data
-
-
 def store_dataset(train: list, val: list, test: list, folder: str):
-  train_file = OUTPUT_PATH+folder+"train.json"
-  store_json(train, train_file)
+  train_file = OUTPUT_PATH+folder+"train.jsonl"
+  store_jsonl(train, train_file)
   logger.info(f"Stored 'train' in '{train_file}'")
 
-  val_file = OUTPUT_PATH+folder+"val.json"
-  store_json(val, val_file)
+  val_file = OUTPUT_PATH+folder+"val.jsonl"
+  store_jsonl(val, val_file)
   logger.info(f"Stored 'val' in '{val_file}'")
 
-  test_file = OUTPUT_PATH+folder+"test.json"
-  store_json(test, test_file)
+  test_file = OUTPUT_PATH+folder+"test.jsonl"
+  store_jsonl(test, test_file)
   logger.info(f"Stored 'test' in '{test_file}'")
 
 
@@ -230,26 +176,3 @@ if __name__ == "__main__":
   process_chen_et_al()
   process_lu_et_al()
   process_xing_et_al()
-
-  # stats = {
-  #   "# of samples": len(result),
-  #   "# of related work samples": len([d for d in result if d["task"] == "related work generation"]),
-  #   "# of citation sentence samples": len([d for d in result if d["task"] == "citation sentence generation"])
-  # }
-
-  # train, val, test = create_dataset_splits(result)
-
-  # store_json(result, OUTPUT_PATH+"data.json")
-  # logger.info(f"Stored 'result' in '{OUTPUT_PATH}'")
-
-  # store_json(stats, OUTPUT_PATH+"stats.json")
-  # logger.info(f"Stored 'stats' in '{OUTPUT_PATH}'")
-
-  # store_json(train, OUTPUT_PATH+"train.json")
-  # logger.info(f"Stored 'train' in '{OUTPUT_PATH}'")
-
-  # store_json(val, OUTPUT_PATH+"val.json")
-  # logger.info(f"Stored 'val' in '{OUTPUT_PATH}'")
-
-  # store_json(test, OUTPUT_PATH+"test.json")
-  # logger.info(f"Stored 'test' in '{OUTPUT_PATH}'")

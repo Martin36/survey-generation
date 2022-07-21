@@ -17,7 +17,7 @@ from utils import title_includes_search_strings
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger()
 
-S2ORC_PATH = "/storage/ukp/work/shared/S2ORC/20200705v1/full"
+S2ORC_PATH = "/storage/ukp/shared/S2ORC/20200705v1/full"
 RESULTS_PATH = "/storage/ukp/work/funkquist/result_inc_abs.json"
 ACL_SURVEY_PAPERS_PATH = "/storage/ukp/work/funkquist/acl_survey_papers_inc_abs.json"
 COMPUTER_SCIENCE_SURVEY_PAPERS_PATH = "/storage/ukp/work/funkquist/computer_science_survey_papers.json"

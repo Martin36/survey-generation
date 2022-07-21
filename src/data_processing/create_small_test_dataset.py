@@ -4,14 +4,6 @@ from utils_package.logger import get_logger
 
 logger = get_logger()
 
-def create_mini_dataset(data):
-  keys_to_keep = ["target", "input"]
-  result = []
-  for d in data:
-    d = {k: d[k] for k in keys_to_keep}
-    result.append(d)
-  return result
-
 BASE_PATH = "data/related_work/benchmark/"
 DATA_FOLDERS = [
   "aburaed_et_at/", 
@@ -22,7 +14,8 @@ DATA_FOLDERS = [
   "xing_et_al/hp/",
   "xing_et_al/hr/",
 ]
-OUTPUT_FILE = BASE_PATH+"mini_dataset.jsonl"
+OUTPUT_TRAIN_FILE = BASE_PATH+"mini_dataset_train.jsonl"
+OUTPUT_VAL_FILE = BASE_PATH+"mini_dataset_val.jsonl"
 
 result = []
 for folder in DATA_FOLDERS:
@@ -34,5 +27,11 @@ for folder in DATA_FOLDERS:
       data_sample = random.sample(data, 5)
       result.extend(data_sample)
 
-store_jsonl(result, OUTPUT_FILE)
-logger.info(f"Stored mini test dataset in '{OUTPUT_FILE}'")
+store_jsonl(result, OUTPUT_TRAIN_FILE)
+logger.info(f"Stored mini test train dataset in '{OUTPUT_TRAIN_FILE}'")
+
+# Create eval
+val_result = random.sample(result, 10)
+store_jsonl(val_result, OUTPUT_VAL_FILE)
+logger.info(f"Stored mini test val dataset in '{OUTPUT_VAL_FILE}'")
+
