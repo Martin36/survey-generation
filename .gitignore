@@ -5,3 +5,4 @@ acl_papers
 test_data
 .env
 *.zip
+outputs

@@ -1,8 +1,8 @@
-import unittest, jsonlines
+import unittest
 
 from utils_package.util_funcs import load_json, load_jsonl
 
-from explore_s2orc import filter_acl_survey_papers, filter_computer_science_survey_papers, title_includes_search_strings
+from survey_gen.explore_s2orc import filter_acl_survey_papers, filter_computer_science_survey_papers, title_includes_search_strings
 
 
 class TestExploreS2ORC(unittest.TestCase):

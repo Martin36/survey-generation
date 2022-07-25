@@ -1,25 +1,76 @@
-import torch
-import evaluate
-import logging
-import os
+import random, torch, evaluate, logging, os
 
-from transformers import LEDTokenizerFast, LEDForConditionalGeneration, Seq2SeqTrainer, Seq2SeqTrainingArguments
+from dataclasses import dataclass, field
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, Seq2SeqTrainer, Seq2SeqTrainingArguments, HfArgumentParser
 from datasets import load_dataset, load_from_disk
 from utils_package.logger import get_logger
 from pynvml import *
 
 logger = get_logger()
 
-logging.basicConfig(level=logging.INFO)
+# logging.basicConfig(level=logging.INFO)
+
+torch.manual_seed(15)
+random.seed(15)
 
 logger.info(f"Cuda available: {torch.cuda.is_available()}")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 logger.info(f"Using device: {device}")
 
+@dataclass
+class Args():
+  model: str = field(
+    default=None,
+    metadata={"help": "Path to pretrained model or shortcut name"}
+  )
+  enc_len: int = field(
+    default=4096,
+    metadata={"help": "Length of the encoder input"}
+  )
+  dec_len: int = field(
+    default=1024,
+    metadata={"help": "Length of the decoder output"}
+  )
+  output_dir: str = field(
+    default=None, # e.g. "models/rel_work/led-base-16384-multi-x"
+    metadata={"help": "Output directory for checkpoints and models"}
+  )
+  decoding_strategy: str = field(
+    default="beam_search",
+    metadata={"help": "Strategy to use for decoding, e.g. beam_search, top_k or top_p"}
+  )
+  top_k: int = field(
+    default=50,
+    metadata={"help": "K for top-k decoding"}
+  )
+  top_p: float = field(
+    default=1.0,
+    metadata={"help": "P for top-p decoding"}
+  )
+
+def get_args():
+  parser = HfArgumentParser([Args])
+  args = parser.parse_args()
+
+  if not args.model:
+    raise ValueError("Model path is required.")
+  if not args.output_dir:
+    raise ValueError("Output directory is required.")
+  if args.decoding_strategy == "top_p" and args.top_p == 1.0:
+    raise ValueError("With decoding_strategy=top_p you must provide a value for top_p.")
+
+  return args
+
+args = get_args()
+
+# Models to try:
+# - allenai/led-base-16384
+# - BART TODO
+
 # model = LEDForConditionalGeneration.from_pretrained("allenai/led-large-16384-arxiv")
 # tokenizer = LEDTokenizerFast.from_pretrained("allenai/led-large-16384-arxiv")
-model = LEDForConditionalGeneration.from_pretrained("allenai/led-base-16384")
-tokenizer = LEDTokenizerFast.from_pretrained("allenai/led-base-16384")
+model = AutoModelForSeq2SeqLM.from_pretrained(args.model)
+tokenizer = AutoTokenizer.from_pretrained(args.model)
 rouge = evaluate.load('rouge')
 
 def print_gpu_utilization():
@@ -36,21 +87,49 @@ def print_summary(result):
 
 
 
+
+# HYPERPARAMETERS
+
+ENCODER_LENGTH = args.enc_len
+DECODER_LENGTH = args.dec_len
+BATCH_SIZE = 8
+EPOCHS = 3
+SAVE_EVAL_STEPS = 300
+OUTPUT_DIR = args.output_dir
+
+DEBUGGING = True
+USE_CAHCED_DATASET = False
+
 # Slightly modified from: https://huggingface.co/patrickvonplaten/bert2gpt2-cnn_dailymail-fp16
 def compute_metrics(pred):
   labels_ids = pred.label_ids
   pred_ids = pred.predictions
-
-  # logger.info(f"Label ids shape: {labels_ids.shape}")
-  # logger.info(f"Pred ids shape: {pred_ids.shape}")
+  inputs = pred.inputs
 
   # all unnecessary tokens are removed
   pred_str = tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
   labels_ids[labels_ids == -100] = tokenizer.eos_token_id
   label_str = tokenizer.batch_decode(labels_ids, skip_special_tokens=True)
+  if inputs:
+    input_str = tokenizer.batch_decode(inputs, skip_special_tokens=True)
+  else:
+    input_str = [''] * len(pred_str)
 
-  # logger.info(f"Pred str: {pred_str}")
-  # logger.info(f"Label str: {label_str}")
+  merged_list = list(zip(input_str, label_str, pred_str)) # TODO: What to call this?
+  rand_sample = random.sample(merged_list, 2 if len(merged_list) > 2 else len(merged_list))
+
+  if DEBUGGING:
+    logger.info(f"Lenght input_str: '{len(input_str)}'")
+    logger.info(f"Lenght label_str: '{len(label_str)}'")
+    logger.info(f"Lenght pred_str: '{len(pred_str)}'")
+    logger.info(f"Lenght merged list: '{len(merged_list)}'")
+
+  for idx, (input, label, pred) in enumerate(rand_sample):
+    logger.info(f"Random evaluation sample nr {idx+1}")
+    logger.info(f"Input: {input}")
+    logger.info(f"Label: {label}")
+    logger.info(f"Pred: {pred}")
+    logger.info("-" * 80)
 
   rouge_output = rouge.compute(predictions=pred_str, references=label_str, rouge_types=["rouge2"])["rouge2"].mid
 
@@ -60,14 +139,6 @@ def compute_metrics(pred):
       "rouge2_fmeasure": round(rouge_output.fmeasure, 4),
   }
 
-# HYPERPARAMETERS
-
-ENCODER_LENGTH = int(4096 / 1)
-DECODER_LENGTH = int(4096 / 4)
-BATCH_SIZE = 8
-EPOCHS = 1
-SAVE_EVAL_STEPS = 300
-TESTING = False
 
 # Slightly modified from: https://huggingface.co/patrickvonplaten/bert2gpt2-cnn_dailymail-fp16
 def map_to_encoder_decoder_inputs(batch):    # Tokenizer will automatically set [BOS] <text> [EOS] 
@@ -104,34 +175,33 @@ def map_to_encoder_decoder_inputs(batch):    # Tokenizer will automatically set 
 BASE_DATA_PATH = "data/related_work/benchmark/"
 data_files = {
   "train": [
-    BASE_DATA_PATH+"aburaed_et_at/train.jsonl",
-    BASE_DATA_PATH+"chen_et_al/delve/train.jsonl",
-    BASE_DATA_PATH+"chen_et_al/s2orc/train.jsonl",
+    # BASE_DATA_PATH+"aburaed_et_at/train.jsonl",
+    # BASE_DATA_PATH+"chen_et_al/delve/train.jsonl",
+    # BASE_DATA_PATH+"chen_et_al/s2orc/train.jsonl",
     BASE_DATA_PATH+"lu_et_al/train.jsonl",
-    BASE_DATA_PATH+"xing_et_al/explicit/train.jsonl",
-    BASE_DATA_PATH+"xing_et_al/hp/train.jsonl",
-    BASE_DATA_PATH+"xing_et_al/hr/train.jsonl"
+    # BASE_DATA_PATH+"xing_et_al/explicit/train.jsonl",
+    # BASE_DATA_PATH+"xing_et_al/hp/train.jsonl",
+    # BASE_DATA_PATH+"xing_et_al/hr/train.jsonl"
   ],
   "validation": [
-    BASE_DATA_PATH+"aburaed_et_at/val.jsonl",
-    BASE_DATA_PATH+"chen_et_al/delve/val.jsonl",
-    BASE_DATA_PATH+"chen_et_al/s2orc/val.jsonl",
+    # BASE_DATA_PATH+"aburaed_et_at/val.jsonl",
+    # BASE_DATA_PATH+"chen_et_al/delve/val.jsonl",
+    # BASE_DATA_PATH+"chen_et_al/s2orc/val.jsonl",
     BASE_DATA_PATH+"lu_et_al/val.jsonl",
-    BASE_DATA_PATH+"xing_et_al/explicit/val.jsonl",
-    BASE_DATA_PATH+"xing_et_al/hp/val.jsonl",
-    BASE_DATA_PATH+"xing_et_al/hr/val.jsonl"
+    # BASE_DATA_PATH+"xing_et_al/explicit/val.jsonl",
+    # BASE_DATA_PATH+"xing_et_al/hp/val.jsonl",
+    # BASE_DATA_PATH+"xing_et_al/hr/val.jsonl"
   ]
 }
 
-# JUST FOR TESTING THE PIPELINE
-if TESTING:
+if DEBUGGING:
   data_files = {
-    "train": [BASE_DATA_PATH+"mini_dataset.jsonl"],
-    "validation": [BASE_DATA_PATH+"mini_dataset.jsonl"]
+    "train": [BASE_DATA_PATH+"mini_dataset_train.jsonl"],
+    "validation": [BASE_DATA_PATH+"mini_dataset_val.jsonl"]
   }
   dataset = load_dataset("json", data_files=data_files)
   dataset = dataset.map(
-    map_to_encoder_decoder_inputs, batched=True, batch_size=BATCH_SIZE, remove_columns=["target", "input"],
+    map_to_encoder_decoder_inputs, batched=True, batch_size=BATCH_SIZE, remove_columns=["target"],#, "input"],
   )
   dataset.set_format(
     type="torch", columns=["input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"],
@@ -139,7 +209,7 @@ if TESTING:
 
 else:
   TOKENIZED_DATASET_PATH = "data/related_work/benchmark/dataset_tokenized"
-  if os.path.isdir(TOKENIZED_DATASET_PATH):
+  if os.path.isdir(TOKENIZED_DATASET_PATH) and USE_CAHCED_DATASET:
     logger.info("Tokenized dataset already exists. Loading from disk...")
     dataset = load_from_disk(TOKENIZED_DATASET_PATH)
   else:
@@ -155,13 +225,13 @@ else:
 
     dataset.save_to_disk(TOKENIZED_DATASET_PATH)
 
-# # same for validation dataset
-# val_dataset = val_dataset.map(
-#   map_to_encoder_decoder_inputs, batched=True, batch_size=BATCH_SIZE, remove_columns=["target", "input_docs", "input"],
-# )
-# val_dataset.set_format(
-#   type="torch", columns=["input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"],
-# )
+if args.decoding_strategy == "top_p":
+  do_sample = True
+elif args.decoding_strategy == "top_k":
+  do_sample = True
+else:
+  do_sample = False
+
 
 # Taken from: https://colab.research.google.com/drive/12LjJazBl7Gam0XBPy_y0CTOJZeZ34c2v?usp=sharing#scrollTo=kPnNi_tWaklV
 model.config.num_beams = 2
@@ -170,28 +240,33 @@ model.config.max_length = DECODER_LENGTH
 model.config.length_penalty = 2.0
 model.config.early_stopping = True
 model.config.no_repeat_ngram_size = 3
+model.config.do_sample = do_sample
 
-if TESTING:
+# TODO: Is this necessary?
+# tokenizer.additional_special_tokens = ["<BOS>", "<EOS>"]
+
+if DEBUGGING:
   training_args = Seq2SeqTrainingArguments(
-    output_dir="models/rel_work/led-base-16384",
+    output_dir=OUTPUT_DIR,
     per_device_train_batch_size=BATCH_SIZE,
-    per_device_eval_batch_size=BATCH_SIZE*2,  # TODO: Try to double the eval batch size to see if speed improves. However the speed is 5-6 times slower so it would still be a lot more
+    per_device_eval_batch_size=BATCH_SIZE//2,
     predict_with_generate=True,
     gradient_accumulation_steps=2,
     gradient_checkpointing=True,
     fp16=True,
     overwrite_output_dir=True,
     evaluation_strategy="steps",
-    eval_steps=5,
+    eval_steps=1,
     save_steps=5,
     save_total_limit=5,
     num_train_epochs=EPOCHS,
+    seed=15,  # For reproducability
   )
 else:
   training_args = Seq2SeqTrainingArguments(
-    output_dir="models/rel_work/led-base-16384",
+    output_dir=OUTPUT_DIR,
     per_device_train_batch_size=BATCH_SIZE,
-    per_device_eval_batch_size=BATCH_SIZE*2,
+    per_device_eval_batch_size=BATCH_SIZE//2,
     predict_with_generate=True,
     gradient_accumulation_steps=2,
     gradient_checkpointing=True,
@@ -202,6 +277,7 @@ else:
     save_steps=SAVE_EVAL_STEPS,
     save_total_limit=5,
     num_train_epochs=EPOCHS,
+    seed=15,  # For reproducability
   )
 
 trainer = Seq2SeqTrainer(
@@ -209,7 +285,7 @@ trainer = Seq2SeqTrainer(
   args=training_args,
   train_dataset=dataset["train"],
   eval_dataset=dataset["validation"],
-  # compute_metrics=compute_metrics,  # TODO: Try this to see if reduced evaluation time https://discuss.huggingface.co/t/evaluation-became-slower-and-slower-during-trainer-train/8682
+  compute_metrics=compute_metrics,  # TODO: Try this to see if reduced evaluation time https://discuss.huggingface.co/t/evaluation-became-slower-and-slower-during-trainer-train/8682
   tokenizer=tokenizer,
 )
 

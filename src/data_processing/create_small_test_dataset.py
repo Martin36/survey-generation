@@ -17,21 +17,23 @@ DATA_FOLDERS = [
 OUTPUT_TRAIN_FILE = BASE_PATH+"mini_dataset_train.jsonl"
 OUTPUT_VAL_FILE = BASE_PATH+"mini_dataset_val.jsonl"
 
+PER_DS_SAMPLE_SIZE = 50
+
 result = []
 for folder in DATA_FOLDERS:
   splits = ["train", "val", "test"]
   for split in splits:
     file = BASE_PATH+folder+split+".jsonl"
     data = load_jsonl(file)
-    if len(data) > 5:
-      data_sample = random.sample(data, 5)
+    if len(data) > PER_DS_SAMPLE_SIZE:
+      data_sample = random.sample(data, PER_DS_SAMPLE_SIZE)
       result.extend(data_sample)
 
 store_jsonl(result, OUTPUT_TRAIN_FILE)
 logger.info(f"Stored mini test train dataset in '{OUTPUT_TRAIN_FILE}'")
 
 # Create eval
-val_result = random.sample(result, 10)
+val_result = random.sample(result, len(result)//10)
 store_jsonl(val_result, OUTPUT_VAL_FILE)
 logger.info(f"Stored mini test val dataset in '{OUTPUT_VAL_FILE}'")
 

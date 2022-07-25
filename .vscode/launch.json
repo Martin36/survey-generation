@@ -11,6 +11,17 @@
       "program": "${file}",
       "console": "integratedTerminal",
       "justMyCode": true
+    },
+    {
+      "name": "Test LED: base model",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceRoot}/src/rel_work/test_led.py",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "--model=allenai/led-base-16384"
+      ]
     }
   ]
 }
