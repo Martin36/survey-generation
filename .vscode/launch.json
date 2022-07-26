@@ -22,6 +22,18 @@
       "args": [
         "--model=allenai/led-base-16384"
       ]
+    },
+    {
+      "name": "Train LED: base model",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceRoot}/src/rel_work/train_led.py",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "--model=allenai/led-base-16384",
+        "--output_dir=models/rel_work/led-base-16384"
+      ]
     }
   ]
 }

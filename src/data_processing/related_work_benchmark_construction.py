@@ -26,6 +26,9 @@ def convert_input_docs_to_unified_format(input_docs: List[str]):
     result += doc[0] + "DOC_" + doc[1:] + " "
   return result.strip()
 
+def remove_leading_brackets(input_docs: List[str]):
+  return [doc[4:] for doc in input_docs]
+
 
 def get_data_aburaed_et_al(split):
   src_ending = ".txt.src"
@@ -45,12 +48,13 @@ def get_data_aburaed_et_al(split):
     tline = tline.strip()
     
     sline = re.sub("\d{1}", "#", sline)
-    sline = "[0] " + sline
+    # sline = "[0] " + sline
     sline = sline.strip()
 
     res_obj = Datum(
       target=tline,
-      input=convert_input_docs_to_unified_format([sline]),
+      #input=convert_input_docs_to_unified_format([sline]),
+      input=[sline],
     )
 
     results.append(res_obj)
@@ -77,7 +81,8 @@ def get_data_chen_et_al(data_path):
   for d in data:
     res_obj = Datum(
       target=d["abs"],
-      input=convert_input_docs_to_unified_format(d["multi_doc"]),
+      #input=convert_input_docs_to_unified_format(d["multi_doc"]),
+      input=remove_leading_brackets(d["multi_doc"]),
     )
     result.append(res_obj)
   return result
@@ -107,7 +112,8 @@ def get_lu_et_al_data(split):
     input_docs=[f'{cite_to_nr[k]} {r["abstract"]}' for k,r in d["ref_abstract"].items()]
     res_obj = Datum(
       target=target,
-      input=convert_input_docs_to_unified_format(input_docs),
+      #input=convert_input_docs_to_unified_format(input_docs),
+      input=remove_leading_brackets(input_docs),
     )
     result.append(res_obj)
   return result
@@ -134,10 +140,13 @@ def get_xing_et_al_data(data, dataset):
     if dataset == "hp":
       target = replace_xing_et_al_references(d["implicit_citation_0.9"])
 
-    input_docs = ["[0] " + d["src_abstract"]]
+    # TODO: Remove #OTHERREF from input data?
+    # input_docs = ["[0] " + d["src_abstract"]]
+    input_docs = [d["src_abstract"].strip()]
     res_obj = Datum(
       target=target,
-      input=convert_input_docs_to_unified_format(input_docs),
+      # input=convert_input_docs_to_unified_format(input_docs),
+      input=input_docs,
     )
     result.append(res_obj)
 

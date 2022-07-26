@@ -97,36 +97,28 @@ EPOCHS = 3
 SAVE_EVAL_STEPS = 300
 OUTPUT_DIR = args.output_dir
 
-DEBUGGING = True
+DEBUGGING = False
 USE_CAHCED_DATASET = False
+PUBMED = False
+
+if DEBUGGING: logger.warning("Debugging mode enabled")
+if PUBMED: logger.info("Training on PubMed dataset")
 
 # Slightly modified from: https://huggingface.co/patrickvonplaten/bert2gpt2-cnn_dailymail-fp16
 def compute_metrics(pred):
   labels_ids = pred.label_ids
   pred_ids = pred.predictions
-  inputs = pred.inputs
 
   # all unnecessary tokens are removed
   pred_str = tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
   labels_ids[labels_ids == -100] = tokenizer.eos_token_id
   label_str = tokenizer.batch_decode(labels_ids, skip_special_tokens=True)
-  if inputs:
-    input_str = tokenizer.batch_decode(inputs, skip_special_tokens=True)
-  else:
-    input_str = [''] * len(pred_str)
 
-  merged_list = list(zip(input_str, label_str, pred_str)) # TODO: What to call this?
+  merged_list = list(zip(label_str, pred_str)) # TODO: What to call this?
   rand_sample = random.sample(merged_list, 2 if len(merged_list) > 2 else len(merged_list))
 
-  if DEBUGGING:
-    logger.info(f"Lenght input_str: '{len(input_str)}'")
-    logger.info(f"Lenght label_str: '{len(label_str)}'")
-    logger.info(f"Lenght pred_str: '{len(pred_str)}'")
-    logger.info(f"Lenght merged list: '{len(merged_list)}'")
-
-  for idx, (input, label, pred) in enumerate(rand_sample):
+  for idx, (label, pred) in enumerate(rand_sample):
     logger.info(f"Random evaluation sample nr {idx+1}")
-    logger.info(f"Input: {input}")
     logger.info(f"Label: {label}")
     logger.info(f"Pred: {pred}")
     logger.info("-" * 80)
@@ -142,14 +134,25 @@ def compute_metrics(pred):
 
 # Slightly modified from: https://huggingface.co/patrickvonplaten/bert2gpt2-cnn_dailymail-fp16
 def map_to_encoder_decoder_inputs(batch):    # Tokenizer will automatically set [BOS] <text> [EOS] 
+  concat_input = []
+  for d in batch["input"]:
+    input_str = ""
+    for idx, doc in enumerate(d):
+      if idx > 0:
+        input_str += " </s> " + doc
+      else:
+        input_str += doc
+    concat_input.append(input_str)
+  batch["input"] = concat_input
+
   inputs = tokenizer(
-    batch["input"], 
+    batch["input"] if not PUBMED else batch["article"], 
     padding="max_length", 
     truncation=True, 
     max_length=ENCODER_LENGTH
   )
   outputs = tokenizer(
-    batch["target"], 
+    batch["target"] if not PUBMED else batch["abstract"], 
     padding="max_length", 
     truncation=True, 
     max_length=DECODER_LENGTH
@@ -165,6 +168,8 @@ def map_to_encoder_decoder_inputs(batch):    # Tokenizer will automatically set 
   batch["labels"] = [
       [-100 if mask == 0 else token for mask, token in mask_and_tokens] for mask_and_tokens in [zip(masks, labels) for masks, labels in zip(batch["decoder_attention_mask"], batch["labels"])]
   ]
+
+  # TODO: Global attention mask?
 
   assert all([len(x) == ENCODER_LENGTH for x in inputs.input_ids])
   assert all([len(x) == DECODER_LENGTH for x in outputs.input_ids])
@@ -194,14 +199,50 @@ data_files = {
   ]
 }
 
-if DEBUGGING:
+if PUBMED:
+  train_dataset = load_dataset("scientific_papers", "pubmed", split="train")
+  #val_dataset = load_dataset("scientific_papers", "pubmed", split="validation")
+  val_dataset = load_dataset("scientific_papers", "pubmed", split="validation[:250]")
+
+  train_dataset = train_dataset.map(
+    map_to_encoder_decoder_inputs,
+    batched=True,
+    batch_size=BATCH_SIZE,
+    remove_columns=["article", "abstract", "section_names"]
+  )
+  val_dataset = val_dataset.map(
+    map_to_encoder_decoder_inputs,
+    batched=True,
+    batch_size=BATCH_SIZE,
+    remove_columns=["article", "abstract", "section_names"],
+    load_from_cache_file=False
+  )
+
+  train_dataset.set_format(
+    type="torch",
+    columns=["input_ids", "attention_mask", "labels"],
+  )
+  val_dataset.set_format(
+      type="torch",
+      columns=["input_ids", "attention_mask", "labels"],
+  )
+
+  dataset = {
+    "train": train_dataset,
+    "validation": val_dataset
+  }
+
+elif DEBUGGING:
   data_files = {
     "train": [BASE_DATA_PATH+"mini_dataset_train.jsonl"],
     "validation": [BASE_DATA_PATH+"mini_dataset_val.jsonl"]
   }
   dataset = load_dataset("json", data_files=data_files)
   dataset = dataset.map(
-    map_to_encoder_decoder_inputs, batched=True, batch_size=BATCH_SIZE, remove_columns=["target"],#, "input"],
+    map_to_encoder_decoder_inputs, 
+    batched=True, 
+    batch_size=BATCH_SIZE, 
+    remove_columns=["target", "input"],
   )
   dataset.set_format(
     type="torch", columns=["input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"],
@@ -256,8 +297,8 @@ if DEBUGGING:
     fp16=True,
     overwrite_output_dir=True,
     evaluation_strategy="steps",
-    eval_steps=1,
-    save_steps=5,
+    eval_steps=100,
+    save_steps=200,
     save_total_limit=5,
     num_train_epochs=EPOCHS,
     seed=15,  # For reproducability
@@ -280,12 +321,14 @@ else:
     seed=15,  # For reproducability
   )
 
+logger.info(f"Validation dataset length, before training initialization: {len(dataset['validation'])}")
+
 trainer = Seq2SeqTrainer(
   model=model,
   args=training_args,
   train_dataset=dataset["train"],
   eval_dataset=dataset["validation"],
-  compute_metrics=compute_metrics,  # TODO: Try this to see if reduced evaluation time https://discuss.huggingface.co/t/evaluation-became-slower-and-slower-during-trainer-train/8682
+  compute_metrics=compute_metrics,
   tokenizer=tokenizer,
 )
 
