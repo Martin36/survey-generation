@@ -47,6 +47,22 @@ class Args():
     default=1.0,
     metadata={"help": "P for top-p decoding"}
   )
+  base_data_path: str = field(
+    default="data/related_work/benchmark/",
+    metadata={"help": "Path to the base data folder. This is the folder where the indiviual dataset folder e.g. 'lu_et_al' is located. Default 'data/related_work/benchmark/'"}
+  )
+  debugging: bool = field(
+    default=False,
+    metadata={"help": "Set this to true if you want to debug the training. It sets the eval steps to a lower number and uses a mini version of the full dataset"}
+  )
+  save_steps: int = field(
+    default=300,
+    metadata={"help": "Save model checkpoint every save_steps"}
+  )
+  eval_steps: int = field(
+    default=300,
+    metadata={"help": "Perform evaluation every eval_steps"}
+  )
 
 def get_args():
   parser = HfArgumentParser([Args])
@@ -65,10 +81,9 @@ args = get_args()
 
 # Models to try:
 # - allenai/led-base-16384
-# - BART TODO
+# - facebook/bart-base
+# - allenai/led-large-16384-arxiv   # This one might be too large/take too long time to train
 
-# model = LEDForConditionalGeneration.from_pretrained("allenai/led-large-16384-arxiv")
-# tokenizer = LEDTokenizerFast.from_pretrained("allenai/led-large-16384-arxiv")
 model = AutoModelForSeq2SeqLM.from_pretrained(args.model)
 tokenizer = AutoTokenizer.from_pretrained(args.model)
 rouge = evaluate.load('rouge')
@@ -85,23 +100,13 @@ def print_summary(result):
     print(f"Samples/second: {result.metrics['train_samples_per_second']:.2f}")
     print_gpu_utilization()
 
-
-
-
-# HYPERPARAMETERS
-
-ENCODER_LENGTH = args.enc_len
-DECODER_LENGTH = args.dec_len
 BATCH_SIZE = 8
 EPOCHS = 3
-SAVE_EVAL_STEPS = 300
-OUTPUT_DIR = args.output_dir
 
-DEBUGGING = False
 USE_CAHCED_DATASET = False
 PUBMED = False
 
-if DEBUGGING: logger.warning("Debugging mode enabled")
+if args.debugging: logger.warning("Debugging mode enabled")
 if PUBMED: logger.info("Training on PubMed dataset")
 
 # Slightly modified from: https://huggingface.co/patrickvonplaten/bert2gpt2-cnn_dailymail-fp16
@@ -132,30 +137,34 @@ def compute_metrics(pred):
   }
 
 
-# Slightly modified from: https://huggingface.co/patrickvonplaten/bert2gpt2-cnn_dailymail-fp16
-def map_to_encoder_decoder_inputs(batch):    # Tokenizer will automatically set [BOS] <text> [EOS] 
-  concat_input = []
-  for d in batch["input"]:
+def concat_input(input):
+  result = []
+  for d in input:
     input_str = ""
     for idx, doc in enumerate(d):
       if idx > 0:
-        input_str += " </s> " + doc
+        input_str += f" {tokenizer.sep_token} " + doc
       else:
         input_str += doc
-    concat_input.append(input_str)
-  batch["input"] = concat_input
+    result.append(input_str)
+  return result
+
+
+# Slightly modified from: https://huggingface.co/patrickvonplaten/bert2gpt2-cnn_dailymail-fp16
+def map_to_encoder_decoder_inputs(batch):    # Tokenizer will automatically set [BOS] <text> [EOS] 
+  batch["input"] = concat_input(batch["input"])
 
   inputs = tokenizer(
     batch["input"] if not PUBMED else batch["article"], 
     padding="max_length", 
     truncation=True, 
-    max_length=ENCODER_LENGTH
+    max_length=args.enc_len
   )
   outputs = tokenizer(
     batch["target"] if not PUBMED else batch["abstract"], 
     padding="max_length", 
     truncation=True, 
-    max_length=DECODER_LENGTH
+    max_length=args.dec_len
   )
 
   batch["input_ids"] = inputs.input_ids
@@ -164,6 +173,9 @@ def map_to_encoder_decoder_inputs(batch):    # Tokenizer will automatically set 
   batch["labels"] = outputs.input_ids.copy()
   batch["decoder_attention_mask"] = outputs.attention_mask
 
+  logger.info(f"Input shape: {batch['input_ids'].shape}")
+  logger.info(f"Decoder input shape: {batch['decoder_input_ids'].shape}")
+  
   # complicated list comprehension here because pad_token_id alone is not good enough to know whether label should be excluded or not
   batch["labels"] = [
       [-100 if mask == 0 else token for mask, token in mask_and_tokens] for mask_and_tokens in [zip(masks, labels) for masks, labels in zip(batch["decoder_attention_mask"], batch["labels"])]
@@ -171,31 +183,30 @@ def map_to_encoder_decoder_inputs(batch):    # Tokenizer will automatically set 
 
   # TODO: Global attention mask?
 
-  assert all([len(x) == ENCODER_LENGTH for x in inputs.input_ids])
-  assert all([len(x) == DECODER_LENGTH for x in outputs.input_ids])
+  assert all([len(x) == args.enc_len for x in inputs.input_ids])
+  assert all([len(x) == args.dec_len for x in outputs.input_ids])
 
   return batch
 
 
-BASE_DATA_PATH = "data/related_work/benchmark/"
 data_files = {
   "train": [
-    # BASE_DATA_PATH+"aburaed_et_at/train.jsonl",
-    # BASE_DATA_PATH+"chen_et_al/delve/train.jsonl",
-    # BASE_DATA_PATH+"chen_et_al/s2orc/train.jsonl",
-    BASE_DATA_PATH+"lu_et_al/train.jsonl",
-    # BASE_DATA_PATH+"xing_et_al/explicit/train.jsonl",
-    # BASE_DATA_PATH+"xing_et_al/hp/train.jsonl",
-    # BASE_DATA_PATH+"xing_et_al/hr/train.jsonl"
+    # args.base_data_path+"aburaed_et_at/train.jsonl",
+    # args.base_data_path+"chen_et_al/delve/train.jsonl",
+    # args.base_data_path+"chen_et_al/s2orc/train.jsonl",
+    args.base_data_path+"lu_et_al/train.jsonl",
+    # args.base_data_path+"xing_et_al/explicit/train.jsonl",
+    # args.base_data_path+"xing_et_al/hp/train.jsonl",
+    # args.base_data_path+"xing_et_al/hr/train.jsonl"
   ],
   "validation": [
-    # BASE_DATA_PATH+"aburaed_et_at/val.jsonl",
-    # BASE_DATA_PATH+"chen_et_al/delve/val.jsonl",
-    # BASE_DATA_PATH+"chen_et_al/s2orc/val.jsonl",
-    BASE_DATA_PATH+"lu_et_al/val.jsonl",
-    # BASE_DATA_PATH+"xing_et_al/explicit/val.jsonl",
-    # BASE_DATA_PATH+"xing_et_al/hp/val.jsonl",
-    # BASE_DATA_PATH+"xing_et_al/hr/val.jsonl"
+    # args.base_data_path+"aburaed_et_at/val.jsonl",
+    # args.base_data_path+"chen_et_al/delve/val.jsonl",
+    # args.base_data_path+"chen_et_al/s2orc/val.jsonl",
+    args.base_data_path+"lu_et_al/val.jsonl",
+    # args.base_data_path+"xing_et_al/explicit/val.jsonl",
+    # args.base_data_path+"xing_et_al/hp/val.jsonl",
+    # args.base_data_path+"xing_et_al/hr/val.jsonl"
   ]
 }
 
@@ -232,10 +243,10 @@ if PUBMED:
     "validation": val_dataset
   }
 
-elif DEBUGGING:
+elif args.debugging:
   data_files = {
-    "train": [BASE_DATA_PATH+"mini_dataset_train.jsonl"],
-    "validation": [BASE_DATA_PATH+"mini_dataset_val.jsonl"]
+    "train": [args.base_data_path+"mini_dataset_train.jsonl"],
+    "validation": [args.base_data_path+"mini_dataset_val.jsonl"]
   }
   dataset = load_dataset("json", data_files=data_files)
   dataset = dataset.map(
@@ -276,19 +287,16 @@ else:
 
 # Taken from: https://colab.research.google.com/drive/12LjJazBl7Gam0XBPy_y0CTOJZeZ34c2v?usp=sharing#scrollTo=kPnNi_tWaklV
 model.config.num_beams = 2
-model.config.max_length = DECODER_LENGTH
+model.config.max_length = args.dec_len
 # model.config.min_length = 100
 model.config.length_penalty = 2.0
 model.config.early_stopping = True
 model.config.no_repeat_ngram_size = 3
 model.config.do_sample = do_sample
 
-# TODO: Is this necessary?
-# tokenizer.additional_special_tokens = ["<BOS>", "<EOS>"]
-
-if DEBUGGING:
+if args.debugging:
   training_args = Seq2SeqTrainingArguments(
-    output_dir=OUTPUT_DIR,
+    output_dir=args.output_dir,
     per_device_train_batch_size=BATCH_SIZE,
     per_device_eval_batch_size=BATCH_SIZE//2,
     predict_with_generate=True,
@@ -297,7 +305,7 @@ if DEBUGGING:
     fp16=True,
     overwrite_output_dir=True,
     evaluation_strategy="steps",
-    eval_steps=100,
+    eval_steps=10,
     save_steps=200,
     save_total_limit=5,
     num_train_epochs=EPOCHS,
@@ -305,7 +313,7 @@ if DEBUGGING:
   )
 else:
   training_args = Seq2SeqTrainingArguments(
-    output_dir=OUTPUT_DIR,
+    output_dir=args.output_dir,
     per_device_train_batch_size=BATCH_SIZE,
     per_device_eval_batch_size=BATCH_SIZE//2,
     predict_with_generate=True,
@@ -314,11 +322,12 @@ else:
     fp16=True,
     overwrite_output_dir=True,
     evaluation_strategy="steps",
-    eval_steps=SAVE_EVAL_STEPS,
-    save_steps=SAVE_EVAL_STEPS,
+    eval_steps=args.eval_steps,
+    save_steps=args.save_steps,
     save_total_limit=5,
     num_train_epochs=EPOCHS,
     seed=15,  # For reproducability
+    no_cuda=True,
   )
 
 logger.info(f"Validation dataset length, before training initialization: {len(dataset['validation'])}")
