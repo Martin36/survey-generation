@@ -10,7 +10,7 @@
       "request": "launch",
       "program": "${file}",
       "console": "integratedTerminal",
-      "justMyCode": true
+      "justMyCode": false
     },
     {
       "name": "Test LED: base model",
@@ -34,6 +34,20 @@
         "--model=allenai/led-base-16384",
         "--output_dir=models/rel_work/led-base-16384"
       ]
-    }
+    },
+    {
+      "name": "Train BART: base model",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceRoot}/src/rel_work/train_led.py",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "--model=facebook/bart-base",
+        "--output_dir=models/rel_work/bart-base-multi-x",
+        "--enc_len=1024",
+        "--dec_len=512",
+      ]
+    },
   ]
 }

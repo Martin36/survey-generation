@@ -18,7 +18,7 @@ def match_search_terms(text: str):
   for term in search_terms:
     if term in text:
       return True
-  return False      
+  return False
 
 
 if __name__ == "__main__":

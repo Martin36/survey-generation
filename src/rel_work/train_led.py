@@ -1,10 +1,13 @@
-import random, torch, evaluate, logging, os
+import random, evaluate, logging, os
 
 from dataclasses import dataclass, field
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, Seq2SeqTrainer, Seq2SeqTrainingArguments, HfArgumentParser
 from datasets import load_dataset, load_from_disk
 from utils_package.logger import get_logger
 from pynvml import *
+
+# os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+import torch
 
 logger = get_logger()
 
@@ -62,6 +65,10 @@ class Args():
   eval_steps: int = field(
     default=300,
     metadata={"help": "Perform evaluation every eval_steps"}
+  )
+  use_cpu: bool = field(
+    default=False,
+    metadata={"help": "Use CPU instead of GPU"}
   )
 
 def get_args():
@@ -173,9 +180,6 @@ def map_to_encoder_decoder_inputs(batch):    # Tokenizer will automatically set 
   batch["labels"] = outputs.input_ids.copy()
   batch["decoder_attention_mask"] = outputs.attention_mask
 
-  logger.info(f"Input shape: {batch['input_ids'].shape}")
-  logger.info(f"Decoder input shape: {batch['decoder_input_ids'].shape}")
-  
   # complicated list comprehension here because pad_token_id alone is not good enough to know whether label should be excluded or not
   batch["labels"] = [
       [-100 if mask == 0 else token for mask, token in mask_and_tokens] for mask_and_tokens in [zip(masks, labels) for masks, labels in zip(batch["decoder_attention_mask"], batch["labels"])]
@@ -269,7 +273,11 @@ else:
 
     logger.info("Mapping data to correct format...")
     dataset = dataset.map(
-      map_to_encoder_decoder_inputs, batched=True, batch_size=BATCH_SIZE, remove_columns=["target", "input"],
+      map_to_encoder_decoder_inputs, 
+      batched=True, 
+      batch_size=BATCH_SIZE, 
+      remove_columns=["target", "input"], 
+      load_from_cache_file=False
     )
     dataset.set_format(
       type="torch", columns=["input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"],
@@ -294,6 +302,8 @@ model.config.early_stopping = True
 model.config.no_repeat_ngram_size = 3
 model.config.do_sample = do_sample
 
+use_fp16 = True if device == "cuda" and not args.use_cpu else False
+
 if args.debugging:
   training_args = Seq2SeqTrainingArguments(
     output_dir=args.output_dir,
@@ -302,7 +312,7 @@ if args.debugging:
     predict_with_generate=True,
     gradient_accumulation_steps=2,
     gradient_checkpointing=True,
-    fp16=True,
+    fp16=use_fp16,
     overwrite_output_dir=True,
     evaluation_strategy="steps",
     eval_steps=10,
@@ -310,6 +320,7 @@ if args.debugging:
     save_total_limit=5,
     num_train_epochs=EPOCHS,
     seed=15,  # For reproducability
+    no_cuda=True if args.use_cpu else False,
   )
 else:
   training_args = Seq2SeqTrainingArguments(
@@ -319,7 +330,7 @@ else:
     predict_with_generate=True,
     gradient_accumulation_steps=2,
     gradient_checkpointing=True,
-    fp16=True,
+    fp16=use_fp16,
     overwrite_output_dir=True,
     evaluation_strategy="steps",
     eval_steps=args.eval_steps,
@@ -327,10 +338,8 @@ else:
     save_total_limit=5,
     num_train_epochs=EPOCHS,
     seed=15,  # For reproducability
-    no_cuda=True,
+    no_cuda=True if args.use_cpu else False,
   )
-
-logger.info(f"Validation dataset length, before training initialization: {len(dataset['validation'])}")
 
 trainer = Seq2SeqTrainer(
   model=model,
