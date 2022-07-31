@@ -1,16 +1,6 @@
-import collections
-import glob
-import gzip
-import io
-import json
-import logging
-import multiprocessing
-import os
-import time
-from typing import Tuple, Any, Dict, Union
-from collections import defaultdict
-
-import tqdm
+import collections, glob, gzip, io, json, logging, multiprocessing, os, time, tqdm
+from typing import Any, Dict, Union
+from utils_package.util_funcs import store_json
 
 from utils import title_includes_search_strings
 
@@ -18,13 +8,15 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger()
 
 S2ORC_PATH = "/storage/ukp/shared/S2ORC/20200705v1/full"
-RESULTS_PATH = "/storage/ukp/work/funkquist/stats/s2orc/result_inc_abs.json"
-ACL_SURVEY_PAPERS_PATH = "/storage/ukp/work/funkquist/stats/s2orc/acl_survey_papers_inc_abs.json"
-COMPUTER_SCIENCE_SURVEY_PAPERS_PATH = "/storage/ukp/work/funkquist/stats/s2orc/computer_science_survey_papers.json"
-SURVEY_CITATIONS_DIST_PATH = "/storage/ukp/work/funkquist/stats/s2orc/survey_citation_dist.json"
-OTHER_CITATION_DIST_PATH = "/storage/ukp/work/funkquist/stats/s2orc/other_citation_dist.json"
+RESULTS_PATH = "stats/s2orc/result_inc_abs.json"
+ACL_SURVEY_PAPERS_PATH = "stats/s2orc/acl_survey_papers_inc_abs.json"
+COMPUTER_SCIENCE_SURVEY_PAPERS_PATH = "stats/s2orc/computer_science_survey_papers.json"
+SURVEY_CITATIONS_DIST_PATH = "stats/s2orc/survey_citation_dist.json"
+OTHER_CITATION_DIST_PATH = "stats/s2orc/other_citation_dist.json"
 
 NUM_PROCESSES = 8
+
+DEBUGGING = False
 
 
 def search_in_abstract(abstract: Union[str, None]):
@@ -94,7 +86,7 @@ def filter_computer_science_survey_papers(metadata_json: Dict[str, Any]):
     return True
 
 
-def explore_metadata(file_path: str) -> Tuple[collections.Counter, collections.Counter]:
+def explore_metadata(file_path: str):
     """
     Explore the metadata of the S2ORC documents in a given metadata JSONL file.
 
@@ -102,14 +94,15 @@ def explore_metadata(file_path: str) -> Tuple[collections.Counter, collections.C
     :return: (counter with statistics, counter with timings)
     """
     stat_counter = collections.Counter()
-    survey_citation_dist = collections.Counter()
-    other_citation_dist = collections.Counter()
+    survey_citation_dist = collections.defaultdict(int)
+    other_citation_dist = collections.defaultdict(int)
     time_counter = collections.Counter()
     acl_surveys_metadata = list()
     computer_science_metadata = list()
 
     tick = time.time()
-    with gzip.open(file_path, "rb") as file:
+
+    def process_file(file):
         reader = io.BufferedReader(file)
 
         for line in reader.readlines():
@@ -136,6 +129,13 @@ def explore_metadata(file_path: str) -> Tuple[collections.Counter, collections.C
             if filter_computer_science_survey_papers(metadata):
                 stat_counter["# Computer Science survey full text instances"] += 1
                 computer_science_metadata.append(metadata)
+
+    if file_path.split(".")[-1] == "gz":
+        with gzip.open(file_path, "rb") as file:
+            process_file(file)
+    else:
+        with open(file_path, "rb") as file:
+            process_file(file)
     
     # stat_counter["citation distribution for title matched papers"] = survey_citation_dist
     stat_counter["average number of citations for title matched papers"] = calc_citations_distribution_average(survey_citation_dist)
@@ -157,6 +157,13 @@ def explore_metadata(file_path: str) -> Tuple[collections.Counter, collections.C
     return result
 
 
+def merge_dicts(x: dict, y: dict):
+    """
+        Merges two dictionaries. If the same key exists in both, the values are added together.
+        NOTE: The values should only be numbers.
+    """
+    return {k: x.get(k, 0) + y.get(k, 0) for k in set(x) | set(y)}
+
 def calc_citations_distribution_average(dist: dict):
     total_citations = 0
     total_papers = 0
@@ -165,6 +172,9 @@ def calc_citations_distribution_average(dist: dict):
         total_citations += int(citations)*nr_of_papers
         total_papers += nr_of_papers
 
+    if total_papers == 0:
+        return 0
+    
     avg_citations = int(total_citations/total_papers)
 
     return avg_citations
@@ -177,18 +187,20 @@ if __name__ == "__main__":
     logger.info(f"Results path: '{RESULTS_PATH}'")
     logger.info(f"Number of processes: {NUM_PROCESSES}")
 
-    # find the dataset files
-    metadata_file_paths = glob.glob(os.path.join(S2ORC_PATH, "metadata", "*.jsonl.gz"))
-    metadata_file_paths.sort()
+    if DEBUGGING:
+        metadata_file_paths = ["data/s2orc/metadata/sample.jsonl"]
+    else: 
+        metadata_file_paths = glob.glob(os.path.join(S2ORC_PATH, "metadata", "*.jsonl.gz"))
+        metadata_file_paths.sort()
 
     logger.info(f"Found {len(metadata_file_paths)} metadata files")
 
     metadata_stat_counter = collections.Counter()
     metadata_time_counter = collections.Counter()
-    acl_surveys_metadata_complete = list()
-    computer_science_surveys_metadata_complete = list()
-    survey_citation_dist = collections.Counter()
-    other_citation_dist = collections.Counter()
+    acl_surveys_metadata = list()
+    computer_science_surveys_metadata = list()
+    survey_citation_dist = dict()
+    other_citation_dist = dict()
 
     with multiprocessing.Pool(processes=NUM_PROCESSES) as p:
         for result in tqdm.tqdm(
@@ -197,10 +209,10 @@ if __name__ == "__main__":
             
             metadata_stat_counter += result["stat_counter"]
             metadata_time_counter += result["time_counter"]
-            acl_surveys_metadata_complete += result["acl_surveys_metadata"]
-            computer_science_surveys_metadata_complete += result["computer_science_metadata"]
-            survey_citation_dist += result["survey_citation_dist"]
-            other_citation_dist += result["other_citation_dist"]
+            acl_surveys_metadata += result["acl_surveys_metadata"]
+            computer_science_surveys_metadata += result["computer_science_metadata"]
+            survey_citation_dist = merge_dicts(survey_citation_dist, result["survey_citation_dist"]) 
+            other_citation_dist = merge_dicts(other_citation_dist, result["other_citation_dist"]) 
 
 
     logger.info("Store results.")
@@ -209,19 +221,19 @@ if __name__ == "__main__":
         "metadata_timings": dict(metadata_time_counter.items()),
     }
 
-    with open(RESULTS_PATH, "w", encoding="utf-8") as file:
-        json.dump(results, file, indent=2)
+    store_json(results, RESULTS_PATH)
+    logger.info(f"Stored 'results' in '{RESULTS_PATH}'")
 
-    with open(ACL_SURVEY_PAPERS_PATH, "w", encoding="utf-8") as file:
-        json.dump(acl_surveys_metadata_complete, file, indent=2)
+    store_json(acl_surveys_metadata, ACL_SURVEY_PAPERS_PATH)
+    logger.info(f"Stored 'acl_surveys_metadata' in '{ACL_SURVEY_PAPERS_PATH}'")
 
-    with open(COMPUTER_SCIENCE_SURVEY_PAPERS_PATH, "w", encoding="utf-8") as file:
-        json.dump(computer_science_surveys_metadata_complete, file, indent=2)
+    store_json(computer_science_surveys_metadata, COMPUTER_SCIENCE_SURVEY_PAPERS_PATH)
+    logger.info(f"Stored 'computer_science_surveys_metadata' in '{COMPUTER_SCIENCE_SURVEY_PAPERS_PATH}'")
 
-    with open(SURVEY_CITATIONS_DIST_PATH, "w", encoding="utf-8") as file:
-        json.dump(survey_citation_dist, file, indent=2)
+    store_json(survey_citation_dist, SURVEY_CITATIONS_DIST_PATH)
+    logger.info(f"Stored 'survey_citation_dist' in '{SURVEY_CITATIONS_DIST_PATH}'")
 
-    with open(OTHER_CITATION_DIST_PATH, "w", encoding="utf-8") as file:
-        json.dump(other_citation_dist, file, indent=2)
+    store_json(other_citation_dist, OTHER_CITATION_DIST_PATH)
+    logger.info(f"Stored 'other_citation_dist' in '{OTHER_CITATION_DIST_PATH}'")
 
     logger.info("All done!")
