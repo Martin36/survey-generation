@@ -4,6 +4,8 @@ from tqdm import tqdm
 from utils_package.util_funcs import store_json
 from utils_package.logger import get_logger
 
+from utils import match_search_terms
+
 logger = get_logger()
 
 BIB_PATH = "data/anthology+abstracts.bib"
@@ -11,14 +13,6 @@ BIB_PATH = "data/anthology+abstracts.bib"
 OUTPUT_PATH = "stats/anthology.json"
 YEAR_DIST_PATH = "stats/anthology_year_dist.json"
 PAPERS_PATH = "stats/anthology_matched_papers.json"
-
-
-def match_search_terms(text: str):
-  search_terms = ["survey", "review", "overview", "shared task"]
-  for term in search_terms:
-    if term in text:
-      return True
-  return False
 
 
 if __name__ == "__main__":

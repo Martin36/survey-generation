@@ -1,8 +1,8 @@
 import collections, glob, gzip, io, json, logging, multiprocessing, os, time, tqdm
-from typing import Any, Dict, Union
+from typing import Any, Dict
 from utils_package.util_funcs import store_json
 
-from utils import title_includes_search_strings
+from utils import match_search_terms
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger()
@@ -19,36 +19,12 @@ NUM_PROCESSES = 8
 DEBUGGING = False
 
 
-def search_in_abstract(abstract: Union[str, None]):
-    """Search the abstract for keywords related to survey papers
-
-    Args:
-        abstract (str): Abstract of the paper
-
-    Returns:
-        bool: True if abstracts contains any of the keywords
-    """
-
-    if not abstract:
-        return False
-    search_strings = ["survey", "systematic review", "literature review"]
-    # search_strings = ["survey"]
-    match = False
-    abstract = abstract.lower()
-
-    for s in search_strings:
-        if s in abstract:
-            match = True
-
-    return match
-
-
 def filter_acl_survey_papers(metadata_json: Dict[str, Any]):
 
     if metadata_json["acl_id"] is None:
         return False
-    if not title_includes_search_strings(metadata_json["title"]) and \
-        not search_in_abstract(metadata_json["abstract"]):
+    if not match_search_terms(metadata_json["title"]) and \
+        not match_search_terms(metadata_json["abstract"]):
         return False
     if not metadata_json["has_pdf_parse"]:
         return False
@@ -70,7 +46,7 @@ def filter_computer_science_survey_papers(metadata_json: Dict[str, Any]):
         return False
     if "Computer Science" not in metadata_json["mag_field_of_study"]:
         return False
-    if not title_includes_search_strings(metadata_json["title"]):
+    if not match_search_terms(metadata_json["title"]):
         return False
     if not metadata_json["has_pdf_parse"]:
         return False
@@ -112,8 +88,11 @@ def explore_metadata(file_path: str):
 
             if metadata["acl_id"] is not None:
                 stat_counter["# ACL instances"] += 1
-                if title_includes_search_strings(metadata["title"]):
+                if match_search_terms(metadata["title"]):
                     stat_counter["# ACL survey instances matched with title"] += 1
+                    survey_citation_dist[len(metadata["outbound_citations"])] += 1
+                elif match_search_terms(metadata["abstract"]):
+                    stat_counter["# ACL survey instances matched with abstract"] += 1
                     survey_citation_dist[len(metadata["outbound_citations"])] += 1
                 else:
                     other_citation_dist[len(metadata["outbound_citations"])] += 1
@@ -214,6 +193,9 @@ if __name__ == "__main__":
             survey_citation_dist = merge_dicts(survey_citation_dist, result["survey_citation_dist"]) 
             other_citation_dist = merge_dicts(other_citation_dist, result["other_citation_dist"]) 
 
+    # Divide by the number of files since this average gets added for each metadata file
+    metadata_stat_counter["average number of citations for other ACL papers"] = metadata_stat_counter["average number of citations for other ACL papers"]/len(metadata_file_paths)
+    metadata_stat_counter["average number of citations for title matched papers"] = metadata_stat_counter["average number of citations for title matched papers"]/len(metadata_file_paths)
 
     logger.info("Store results.")
     results = {

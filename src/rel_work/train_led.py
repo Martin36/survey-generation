@@ -70,6 +70,10 @@ class Args():
     default=False,
     metadata={"help": "Use CPU instead of GPU"}
   )
+  use_sep_token: bool = field(
+    default=True,
+    metadata={"help": "If True the input documents will be separated by the sep token in the input. Defaults to True"}
+  )
 
 def get_args():
   parser = HfArgumentParser([Args])
@@ -144,13 +148,16 @@ def compute_metrics(pred):
   }
 
 
-def concat_input(input):
+def concat_input(input, use_sep_token):
   result = []
   for d in input:
     input_str = ""
     for idx, doc in enumerate(d):
       if idx > 0:
-        input_str += f" {tokenizer.sep_token} " + doc
+        if use_sep_token:
+          input_str += f" {tokenizer.sep_token} " + doc
+        else:
+          input_str += " " + doc
       else:
         input_str += doc
     result.append(input_str)
@@ -159,7 +166,7 @@ def concat_input(input):
 
 # Slightly modified from: https://huggingface.co/patrickvonplaten/bert2gpt2-cnn_dailymail-fp16
 def map_to_encoder_decoder_inputs(batch):    # Tokenizer will automatically set [BOS] <text> [EOS] 
-  batch["input"] = concat_input(batch["input"])
+  batch["input"] = concat_input(batch["input"], args.use_sep_token)
 
   inputs = tokenizer(
     batch["input"] if not PUBMED else batch["article"], 
