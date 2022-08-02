@@ -130,15 +130,22 @@ if __name__ == "__main__":
   else:
     do_sample = False
 
+  if hasattr(model.config, "max_encoder_position_embeddings"):
+    max_enc_length = model.config.max_encoder_position_embeddings
+  elif hasattr(model.config, "max_position_embeddings"):
+    max_enc_length = model.config.max_position_embeddings
+  else:
+    # TODO: what to set max_length to if none of the above attributes exist in the config?
+    max_enc_length = 512
+  
+  if hasattr(model.config, "max_decoder_position_embeddings"):
+    max_dec_length = model.config.max_decoder_position_embeddings
+  else:
+    # Assumption made, might not be correct
+    max_dec_length = max_enc_length
+
   # map data correctly
   def generate_summary(batch):
-    if hasattr(model.config, "max_encoder_position_embeddings"):
-      max_length = model.config.max_encoder_position_embeddings
-    if hasattr(model.config, "max_position_embeddings"):
-      max_length = model.config.max_position_embeddings
-    else:
-      # TODO: what to set max_length to if none of the above attributes exist in the config?
-      max_length = 512
 
     # TODO: Add option to use sep token here?
     batch["input"] = concat_input(batch["input"])
@@ -147,7 +154,7 @@ if __name__ == "__main__":
       batch["input"], 
       padding="max_length", 
       truncation=True, 
-      max_length=max_length, 
+      max_length=max_enc_length, 
       return_tensors="pt"
     )
     input_ids = inputs.input_ids.to(device)
@@ -180,7 +187,7 @@ if __name__ == "__main__":
   model.config.early_stopping = True
   model.config.no_repeat_ngram_size = 3
   
-  # TODO: How to set seed for predictions?
+  # TODO: How to set seed for predictions? Is it needed?
 
   data_files, ds_names = get_data_files(args.datasets)
   
@@ -223,8 +230,8 @@ if __name__ == "__main__":
       "model_name": model_name,
       "predictions": predictions,
       "hyperparameters": {
-        "encoder_length": model.config.max_encoder_position_embeddings,
-        "decoder_length": model.config.max_decoder_position_embeddings,
+        "encoder_length": max_enc_length,
+        "decoder_length": max_dec_length,
         "batch_size": args.batch_size,
         "num_beams": model.config.num_beams,
         "early_stopping": model.config.early_stopping,
