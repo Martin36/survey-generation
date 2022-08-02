@@ -10,13 +10,13 @@
       "request": "launch",
       "program": "${file}",
       "console": "integratedTerminal",
-      "justMyCode": false
+      "justMyCode": true
     },
     {
       "name": "Test LED: base model",
       "type": "python",
       "request": "launch",
-      "program": "${workspaceRoot}/src/rel_work/test_led.py",
+      "program": "${workspaceRoot}/src/rel_work/test.py",
       "console": "integratedTerminal",
       "justMyCode": true,
       "args": [
@@ -24,22 +24,36 @@
       ]
     },
     {
+      "name": "Test BART: base model",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceRoot}/src/rel_work/test.py",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "--model=facebook/bart-base",
+        "--datasets=lu_et_al",
+      ]
+    },
+    {
       "name": "Train LED: base model",
       "type": "python",
       "request": "launch",
-      "program": "${workspaceRoot}/src/rel_work/train_led.py",
+      "program": "${workspaceRoot}/src/rel_work/train.py",
       "console": "integratedTerminal",
       "justMyCode": true,
       "args": [
         "--model=allenai/led-base-16384",
-        "--output_dir=models/rel_work/led-base-16384"
+        "--output_dir=models/rel_work/led-base-16384",
+        "--use_sep_token=False",
+        "--datasets=lu_et_al"
       ]
     },
     {
       "name": "Train BART: base model",
       "type": "python",
       "request": "launch",
-      "program": "${workspaceRoot}/src/rel_work/train_led.py",
+      "program": "${workspaceRoot}/src/rel_work/train.py",
       "console": "integratedTerminal",
       "justMyCode": true,
       "args": [

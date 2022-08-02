@@ -1,3 +1,33 @@
+from typing import List
+
+
+def concat_input(input: List[List[str]], sep_token=None):
+  """
+  Concatenates the list of input documents for each input. 
+  If sep_token is provided it will be added between the documents. 
+  Otherwise, documents are only separated by a space.
+
+  Args:
+      input (List[str]): A list of input documents.
+      sep_token (str, optional): The separation token. Defaults to None.
+
+  Returns:
+      _type_: _description_
+  """
+  result = []
+  for d in input:
+    input_str = ""
+    for idx, doc in enumerate(d):
+      if idx > 0:
+        if sep_token:
+          input_str += f" {sep_token} " + doc
+        else:
+          input_str += " " + doc
+      else:
+        input_str += doc
+    result.append(input_str)
+  return result
+
 
 def match_search_terms(text: str):
 	"""Looks for specific search terms in a string

@@ -1,8 +1,8 @@
 import unittest, evaluate
 
-from rel_work.test_led import map_rouge_output_to_json
+from rel_work.test import map_rouge_output_to_json
 
-class TestTestLed(unittest.TestCase):
+class TestTest(unittest.TestCase):
 
   def test_map_rouge_output_to_json(self):
     rouge = evaluate.load('rouge')
